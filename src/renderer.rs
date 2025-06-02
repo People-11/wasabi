@@ -164,6 +164,9 @@ impl Renderer {
             },
         );
 
+        // Move it to init.
+        egui_extras::install_image_loaders(&gui.context());
+
         let mut gui_render_data = GuiRenderer {
             gui: &mut gui,
             device: device.clone(),
@@ -268,7 +271,8 @@ impl Renderer {
                 renderer: &mut gui_render_data,
                 frame: &frame,
             };
-            egui_extras::install_image_loaders(&gui_state.renderer.gui.context());
+            // This shouldn't invoke every frame too
+            // egui_extras::install_image_loaders(&gui_state.renderer.gui.context());
             self.gui_window.layout(&mut gui_state, settings, state);
         });
 
