@@ -47,6 +47,11 @@ use super::RenderResultData;
 
 const BUFFER_ARRAY_LEN: u64 = 256;
 
+fn get_max_buffers(device: &Arc<Device>) -> u32 {
+    device.physical_device().properties()
+        .max_per_stage_descriptor_storage_buffers.min(256)
+}
+
 struct CakeBuffer {
     data: Subbuffer<[IntVector4]>,
     start: i32,
@@ -124,6 +129,7 @@ pub struct CakeRenderer {
     sd_allocator: Arc<StandardDescriptorSetAllocator>,
     buffers_init: Subbuffer<[CakeNoteColumn]>,
     current_file_signature: Option<CakeSignature>,
+    max_buffers: u32,
 }
 
 impl CakeRenderer {
@@ -131,6 +137,8 @@ impl CakeRenderer {
         let allocator = Arc::new(StandardMemoryAllocator::new_default(
             renderer.device.clone(),
         ));
+
+        let max_buffers = get_max_buffers(&renderer.device);
 
         let gfx_queue = renderer.queue.clone();
 
@@ -178,7 +186,7 @@ impl CakeRenderer {
             .expect("failed to create shader module")
             .entry_point("main")
             .unwrap();
-        let fs = fs::load(gfx_queue.device().clone())
+        let fs = fs::load_with_array_size(gfx_queue.device().clone(), max_buffers as usize)
             .expect("failed to create shader module")
             .entry_point("main")
             .unwrap();
@@ -263,6 +271,7 @@ impl CakeRenderer {
             .into(),
             buffers_init: buffers,
             current_file_signature: None,
+            max_buffers,
         }
     }
 
@@ -295,7 +304,7 @@ impl CakeRenderer {
         if self.current_file_signature.as_ref() != Some(&curr_signature) {
             self.current_file_signature = Some(curr_signature);
             self.buffers.clear();
-            for (i, block) in midi_file.key_blocks().iter().enumerate() {
+            for (i, block) in midi_file.key_blocks().iter().enumerate().take(self.max_buffers as usize) {
                 let key = key_view.key(i);
                 self.buffers.add_buffer(self.allocator.clone(), block, &key);
             }
@@ -494,6 +503,31 @@ mod gs {
 }
 
 mod fs {
+    use std::sync::Arc;
+    use vulkano::{device::Device, shader::ShaderModule};
+    use vulkano::shader::{spirv, ShaderModuleCreateInfo};
+    
+    pub fn load_with_array_size(device: Arc<Device>, array_size: usize) -> Result<Arc<ShaderModule>, Box<dyn std::error::Error>> {
+        let source = include_str!("../../../../../shaders/cake/cake.frag");
+        let modified = source.replace("} buffers[256];", &format!("}} buffers[{}];", array_size));
+        
+        let compiler = shaderc::Compiler::new().ok_or("Failed to create shader compiler")?;
+        let spirv_result = compiler.compile_into_spirv(
+            &modified,
+            shaderc::ShaderKind::Fragment,
+            "cake.frag",
+            "main",
+            None,
+        )?;
+        
+        let spirv_words = spirv::bytes_to_words(spirv_result.as_binary_u8())?;
+        let create_info = ShaderModuleCreateInfo::new(&spirv_words);
+        
+        Ok(unsafe {
+            ShaderModule::new(device, create_info)?
+        })
+    }
+    
     vulkano_shaders::shader! {
         ty: "fragment",
         path: "shaders/cake/cake.frag"

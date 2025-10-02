@@ -5459,6 +5459,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "shaderc",
  "spin_sleep",
  "time",
  "tokio",
