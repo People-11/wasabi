@@ -128,6 +128,11 @@ impl MIDIColor {
         vec
     }
 
+    pub fn new_white_vec(tracks: usize) -> Vec<Self> {
+        let count = tracks * 16;
+        vec![MIDIColor::new(255, 255, 255); count]
+    }
+
     pub fn new_vec_from_palette(tracks: usize, image: DynamicImage, randomize: bool) -> Vec<Self> {
         let image = image.to_rgb8();
         let all_colors = image.pixels().map(|p| Self::new(p.0[0], p.0[1], p.0[2]));
@@ -153,6 +158,7 @@ impl MIDIColor {
         match settings.colors {
             Colors::Rainbow => Ok(MIDIColor::new_vec(tracks)),
             Colors::Random => Ok(MIDIColor::new_random_vec(tracks)),
+            Colors::White => Ok(MIDIColor::new_white_vec(tracks)),
             Colors::Palette => {
                 let path = &settings.palette_path;
                 if path.exists() {
