@@ -152,6 +152,7 @@ pub enum Colors {
     Rainbow = 0,
     Random = 1,
     Palette = 2,
+    White = 3,
 }
 
 impl Colors {
@@ -161,6 +162,7 @@ impl Colors {
             Colors::Rainbow => "Rainbow",
             Colors::Random => "Random",
             Colors::Palette => "Palette",
+            Colors::White => "White",
         }
     }
 }
@@ -173,8 +175,9 @@ impl FromStr for Colors {
             "rainbow" => Ok(Colors::Rainbow),
             "random" => Ok(Colors::Random),
             "palette" => Ok(Colors::Palette),
+            "white" => Ok(Colors::White),
             s => Err(format!(
-                "{} was not expected. Expected one of `ranbow`, `random` or `palette`",
+                "{} was not expected. Expected one of `rainbow`, `random`, `palette` or `white`",
                 s
             )),
         }
