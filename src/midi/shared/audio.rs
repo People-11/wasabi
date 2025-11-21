@@ -6,10 +6,26 @@ use midi_toolkit::{
     sequence::event::{Delta, EventBatch, Track},
 };
 
-pub struct CompressedAudio {
+// New struct to represent individual audio blocks, similar to the old CompressedAudio
+pub struct RawAudioBlock {
     pub time: f64,
-    data: Vec<u8>,
-    control_only_data: Option<Vec<u8>>,
+    pub data: Vec<u8>,
+    pub control_only_data: Option<Vec<u8>>,
+}
+
+pub struct FlatAudio {
+    pub blocks: Vec<AudioBlockInfo>,
+    data_buffer: Vec<u8>,
+    control_data_buffer: Vec<u8>,
+}
+
+#[derive(Clone, Copy)]
+pub struct AudioBlockInfo {
+    pub time: f64,
+    data_offset: u64,
+    data_len: u64,
+    control_data_offset: u64,
+    control_data_len: u64,
 }
 
 const EV_OFF: u8 = 0x80;
@@ -20,13 +36,13 @@ const EV_PROGRAM: u8 = 0xC0;
 const EV_CHAN_PRESSURE: u8 = 0xD0;
 const EV_PITCH_BEND: u8 = 0xE0;
 
-impl CompressedAudio {
-    pub fn build_blocks<
+impl RawAudioBlock {
+    pub fn build_raw_blocks<
         Iter: Iterator<Item = Arc<Delta<f64, Track<EventBatch<E>>>>>,
         E: MIDIEventEnum,
     >(
         iter: Iter,
-    ) -> impl Iterator<Item = CompressedAudio> {
+    ) -> impl Iterator<Item = RawAudioBlock> {
         let mut builder_vec: Vec<u8> = Vec::new();
         let mut control_builder_vec: Vec<u8> = Vec::new();
         GenIter(
@@ -41,6 +57,7 @@ impl CompressedAudio {
 
                     builder_vec.reserve(min_len);
                     builder_vec.clear();
+                    control_builder_vec.clear(); // Clear control builder for each block
 
                     for event in block.iter_events() {
                         match event.as_event() {
@@ -89,9 +106,6 @@ impl CompressedAudio {
                         }
                     }
 
-                    let mut new_vec = Vec::with_capacity(builder_vec.len());
-                    new_vec.append(&mut builder_vec);
-
                     let new_control_vec = if control_builder_vec.is_empty() {
                         None
                     } else {
@@ -100,8 +114,8 @@ impl CompressedAudio {
                         Some(new_control_vec)
                     };
 
-                    yield CompressedAudio {
-                        data: new_vec,
+                    yield RawAudioBlock {
+                        data: builder_vec.drain(..).collect(), // Collect drained items
                         control_only_data: new_control_vec,
                         time,
                     };
@@ -111,14 +125,14 @@ impl CompressedAudio {
     }
 
     pub fn iter_events(&self) -> impl '_ + Iterator<Item = u32> {
-        CompressedAudio::iter_events_from_vec(self.data.iter().cloned())
+        RawAudioBlock::iter_events_from_vec(self.data.iter().cloned())
     }
 
     pub fn iter_control_events(&self) -> impl '_ + Iterator<Item = u32> {
-        CompressedAudio::iter_events_from_vec(self.control_only_data.iter().flatten().cloned())
+        RawAudioBlock::iter_events_from_vec(self.control_only_data.iter().flatten().cloned())
     }
 
-    pub fn iter_events_from_vec<'a>(
+    fn iter_events_from_vec<'a>(
         mut iter: impl 'a + Iterator<Item = u8>,
     ) -> impl 'a + Iterator<Item = u32> {
         GenIter(
@@ -143,5 +157,58 @@ impl CompressedAudio {
                 }
             },
         )
+    }
+}
+
+impl FlatAudio {
+    pub fn build_blocks<Iter: Iterator<Item = RawAudioBlock>>(iter: Iter) -> FlatAudio {
+        let mut blocks = Vec::new();
+        let mut data_buffer = Vec::new();
+        let mut control_data_buffer = Vec::new();
+
+        for raw_block in iter {
+            let data_offset = data_buffer.len() as u64;
+            let data_len = raw_block.data.len() as u64;
+            data_buffer.extend_from_slice(&raw_block.data);
+
+            let control_data_offset = control_data_buffer.len() as u64;
+            let control_data_len = raw_block
+                .control_only_data
+                .as_ref()
+                .map_or(0, |v| v.len() as u64);
+            if let Some(control_data) = raw_block.control_only_data {
+                control_data_buffer.extend_from_slice(&control_data);
+            }
+
+            blocks.push(AudioBlockInfo {
+                time: raw_block.time,
+                data_offset,
+                data_len,
+                control_data_offset,
+                control_data_len,
+            });
+        }
+
+        FlatAudio {
+            blocks,
+            data_buffer,
+            control_data_buffer,
+        }
+    }
+
+    pub fn iter_events(&self, block_index: usize) -> impl '_ + Iterator<Item = u32> {
+        let block_info = self.blocks[block_index];
+        let start = block_info.data_offset as usize;
+        let end = start + block_info.data_len as usize;
+        let iter = self.data_buffer[start..end].iter().cloned();
+        RawAudioBlock::iter_events_from_vec(iter)
+    }
+
+    pub fn iter_control_events(&self, block_index: usize) -> impl '_ + Iterator<Item = u32> {
+        let block_info = self.blocks[block_index];
+        let start = block_info.control_data_offset as usize;
+        let end = start + block_info.control_data_len as usize;
+        let iter = self.control_data_buffer[start..end].iter().cloned();
+        RawAudioBlock::iter_events_from_vec(iter)
     }
 }

@@ -40,7 +40,7 @@ use crate::{
         window::keyboard_layout::{KeyPosition, KeyboardView},
         GuiRenderer,
     },
-    midi::{CakeBlock, CakeMIDIFile, CakeSignature, IntVector4},
+    midi::{CakeMIDIFile, CakeSignature, FlatCakeBlocks, IntVector4},
 };
 
 use super::RenderResultData;
@@ -82,9 +82,13 @@ impl BufferSet {
     fn add_buffer(
         &mut self,
         allocator: Arc<StandardMemoryAllocator>,
-        block: &CakeBlock,
-        _key: &KeyPosition,
+        flat_blocks: &FlatCakeBlocks,
+        key: usize,
+        _key_pos: &KeyPosition,
     ) {
+        let tree_slice = flat_blocks.get_tree(key);
+        let block_info = flat_blocks.get_block_info(key);
+
         let data = Buffer::from_iter(
             allocator.clone(),
             BufferCreateInfo {
@@ -95,14 +99,14 @@ impl BufferSet {
                 memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
-            block.tree.iter().copied(),
+            tree_slice.iter().copied(),
         )
         .unwrap();
 
         let buffer = CakeBuffer {
             data,
-            start: block.start_time as i32,
-            end: block.end_time as i32,
+            start: block_info.start_time as i32,
+            end: block_info.end_time as i32,
         };
 
         self.buffers.push(buffer);
@@ -295,9 +299,11 @@ impl CakeRenderer {
         if self.current_file_signature.as_ref() != Some(&curr_signature) {
             self.current_file_signature = Some(curr_signature);
             self.buffers.clear();
-            for (i, block) in midi_file.key_blocks().iter().enumerate() {
-                let key = key_view.key(i);
-                self.buffers.add_buffer(self.allocator.clone(), block, &key);
+            let flat_blocks = midi_file.flat_blocks();
+            for i in 0..flat_blocks.len() {
+                let key_pos = key_view.key(i);
+                self.buffers
+                    .add_buffer(self.allocator.clone(), flat_blocks, i, &key_pos);
             }
         }
 
@@ -445,19 +451,20 @@ impl CakeRenderer {
 
         // Calculate the metadata before awaiting the future
         // to keep this more efficient
-        let colors = midi_file
-            .key_blocks()
-            .iter()
-            .map(|block| block.get_note_at(screen_start as u32).map(|n| n.color))
+        let flat_blocks = midi_file.flat_blocks();
+        let colors = (0..flat_blocks.len())
+            .map(|key| {
+                flat_blocks
+                    .get_note_at(key, screen_start as u32)
+                    .map(|n| n.color)
+            })
             .collect();
-        let rendered_notes = midi_file
-            .key_blocks()
-            .iter()
-            .map(|block| {
-                let passed =
-                    block.get_notes_passed_at(screen_end) - block.get_notes_passed_at(screen_start);
+        let rendered_notes = (0..flat_blocks.len())
+            .map(|key| {
+                let passed = flat_blocks.get_notes_passed_at(key, screen_end)
+                    - flat_blocks.get_notes_passed_at(key, screen_start);
 
-                if block.get_note_at(screen_start as u32).is_some() {
+                if flat_blocks.get_note_at(key, screen_start as u32).is_some() {
                     passed as u64 + 1
                 } else {
                     passed as u64
