@@ -17,8 +17,12 @@ use crate::{
     midi::{
         audio::ram::InRamAudioPlayer,
         open_file_and_signature,
-        ram::{column::InRamNoteColumn, view::InRamNoteViewData},
-        shared::{audio::CompressedAudio, timer::TimeKeeper, track_channel::TrackAndChannel},
+        ram::{column::FlatNoteColumn, view::InRamNoteViewData},
+        shared::{
+            audio::{FlatAudio, RawAudioBlock},
+            timer::TimeKeeper,
+            track_channel::TrackAndChannel,
+        },
         MIDIColor,
     },
     settings::MidiSettings,
@@ -161,11 +165,10 @@ impl InRamMIDIFile {
             (keys, notes)
         });
 
-        let audio_join_handle = thread::spawn(|| {
-            let vec: Vec<_> = CompressedAudio::build_blocks(audio_rcv.into_iter()).collect();
-            vec
+        let audio_join_handle = thread::spawn(move || {
+            let raw_blocks: Vec<_> = RawAudioBlock::build_raw_blocks(audio_rcv.into_iter()).collect();
+            FlatAudio::build_blocks(raw_blocks.into_iter())
         });
-
         let mut length = 0.0;
 
         // Write events to the threads
@@ -184,11 +187,11 @@ impl InRamMIDIFile {
 
         let mut timer = TimeKeeper::new(settings.start_delay);
 
-        InRamAudioPlayer::new(audio, timer.get_listener(), player).spawn_playback();
+        InRamAudioPlayer::new(Arc::new(audio), timer.get_listener(), player).spawn_playback();
 
         let columns = keys
             .into_iter()
-            .map(|key| InRamNoteColumn::new(key.column))
+            .map(|key| FlatNoteColumn::build_from_blocks(key.column))
             .collect();
 
         let colors = MIDIColor::new_vec_from_settings(midi.track_count(), settings)?;

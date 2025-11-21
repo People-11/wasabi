@@ -3,12 +3,12 @@ use std::sync::{atomic::Ordering, Arc};
 use atomic_float::AtomicF64;
 use crossbeam_channel::Receiver;
 
-use crate::midi::shared::audio::CompressedAudio;
+use crate::midi::shared::audio::RawAudioBlock;
 
 use super::{ThreadManager, TrackEventBatch};
 
 pub struct AudioParserResult {
-    pub reciever: Receiver<CompressedAudio>,
+    pub reciever: Receiver<RawAudioBlock>,
     pub manager: ThreadManager,
 }
 
@@ -18,7 +18,7 @@ pub fn init_audio_manager(blocks: Receiver<Arc<TrackEventBatch>>) -> AudioParser
 
     let parse_time = parse_time_outer.clone();
     let join_handle = std::thread::spawn(move || {
-        for block in CompressedAudio::build_blocks(blocks.into_iter()) {
+        for block in RawAudioBlock::build_raw_blocks(blocks.into_iter()) {
             parse_time.store(block.time, Ordering::Relaxed);
             let res = sender.send(block);
             if res.is_err() {

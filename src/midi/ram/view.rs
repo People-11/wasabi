@@ -3,10 +3,10 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::midi::{DisplacedMIDINote, MIDIColor, MIDINoteColumnView, MIDINoteViews, MIDIViewRange};
 
-use super::column::InRamNoteColumn;
+use super::column::FlatNoteColumn;
 
 pub struct InRamNoteViewData {
-    columns: Vec<InRamNoteColumn>,
+    columns: Vec<FlatNoteColumn>,
     default_track_colors: Vec<MIDIColor>,
     view_range: MIDIViewRange,
 }
@@ -22,7 +22,7 @@ impl<'a> InRamCurrentNoteViews<'a> {
 }
 
 impl InRamNoteViewData {
-    pub fn new(columns: Vec<InRamNoteColumn>, colors: Vec<MIDIColor>) -> Self {
+    pub fn new(columns: Vec<FlatNoteColumn>, colors: Vec<MIDIColor>) -> Self {
         InRamNoteViewData {
             columns,
             view_range: MIDIViewRange {
@@ -47,32 +47,31 @@ impl InRamNoteViewData {
         self.view_range = new_view_range;
 
         self.columns.par_iter_mut().for_each(|column| {
-            if column.blocks.is_empty() {
+            if column.is_empty() {
                 return;
             }
 
-            let blocks = &column.blocks;
-            let data = &mut column.data;
+            let blocks_len = column.blocks_len();
 
-            let mut new_block_start = data.block_range.start;
-            let mut new_block_end = data.block_range.end;
+            let mut new_block_start = column.data.block_range.start;
+            let mut new_block_end = column.data.block_range.end;
 
             if new_view_range.end > old_view_range.end {
-                while new_block_end < blocks.len() {
-                    let block = &blocks[new_block_end];
-                    if block.start >= new_view_range.end {
+                while new_block_end < blocks_len {
+                    let block_info = column.get_block_info(new_block_end);
+                    if block_info.start >= new_view_range.end {
                         break;
                     }
-                    data.notes_to_render_end += block.notes.len() as u64;
+                    column.data.notes_to_render_end += column.block_notes_len(new_block_end) as u64;
                     new_block_end += 1;
                 }
             } else if new_view_range.end < old_view_range.end {
                 while new_block_end > 0 {
-                    let block = &blocks[new_block_end - 1];
-                    if block.start < new_view_range.end {
+                    let block_info = column.get_block_info(new_block_end - 1);
+                    if block_info.start < new_view_range.end {
                         break;
                     }
-                    data.notes_to_render_end -= block.notes.len() as u64;
+                    column.data.notes_to_render_end -= column.block_notes_len(new_block_end - 1) as u64;
                     new_block_end -= 1;
                 }
             } else {
@@ -81,59 +80,63 @@ impl InRamNoteViewData {
 
             if new_view_range.start > old_view_range.start {
                 // Increment the note view start
-                while new_block_start < blocks.len() {
-                    let block = &blocks[new_block_start];
-                    if block.max_end() >= new_view_range.start {
+                while new_block_start < blocks_len {
+                    let block_info = column.get_block_info(new_block_start);
+                    let max_end = block_info.start + block_info.max_length as f64;
+                    if max_end >= new_view_range.start {
                         break;
                     }
-                    data.notes_to_render_start += block.notes.len() as u64;
+                    column.data.notes_to_render_start += column.block_notes_len(new_block_start) as u64;
                     new_block_start += 1;
                 }
 
                 // Increment the keyboard passed notes/blocks
-                while data.blocks_to_keyboard < blocks.len() {
-                    let block = &blocks[data.blocks_to_keyboard];
-                    if block.start > new_view_range.start {
+                while column.data.blocks_to_keyboard < blocks_len {
+                    let block_info = column.get_block_info(column.data.blocks_to_keyboard);
+                    if block_info.start > new_view_range.start {
                         break;
                     }
-                    data.notes_to_keyboard += block.notes.len() as u64;
-                    data.blocks_to_keyboard += 1;
+                    let notes_len = column.block_notes_len(column.data.blocks_to_keyboard) as u64;
+                    column.data.notes_to_keyboard += notes_len;
+                    column.data.blocks_to_keyboard += 1;
                 }
             } else if new_view_range.start < old_view_range.start {
                 // It is smaller, we have to start from the beginning
-                data.notes_to_render_start = 0;
+                column.data.notes_to_render_start = 0;
                 new_block_start = 0;
 
-                data.notes_to_keyboard = 0;
-                data.blocks_to_keyboard = 0;
+                column.data.notes_to_keyboard = 0;
+                column.data.blocks_to_keyboard = 0;
 
                 // Increment both view start notes and keyboard notes until we reach view start cutoff
-                while new_block_start < blocks.len() {
-                    let block = &blocks[new_block_start];
-                    if block.max_end() >= new_view_range.start {
+                while new_block_start < blocks_len {
+                    let block_info = column.get_block_info(new_block_start);
+                    let max_end = block_info.start + block_info.max_length as f64;
+                    if max_end >= new_view_range.start {
                         break;
                     }
-                    data.notes_to_render_start += block.notes.len() as u64;
+                    column.data.notes_to_render_start += column.block_notes_len(new_block_start) as u64;
                     new_block_start += 1;
 
-                    data.notes_to_keyboard += block.notes.len() as u64;
-                    data.blocks_to_keyboard += 1;
+                    column.data.notes_to_keyboard += column.block_notes_len(new_block_start - 1) as u64;
+                    column.data.blocks_to_keyboard += 1;
                 }
 
                 // Increment the remaining keyboard blocks
-                while data.blocks_to_keyboard < blocks.len() {
-                    let block = &blocks[data.blocks_to_keyboard];
-                    if block.start > new_view_range.start {
+                while column.data.blocks_to_keyboard < blocks_len {
+                    let block_info = column.get_block_info(column.data.blocks_to_keyboard);
+                    if block_info.start > new_view_range.start {
                         break;
                     }
-                    data.notes_to_keyboard += block.notes.len() as u64;
-                    data.blocks_to_keyboard += 1;
+                    let notes_len = column.block_notes_len(column.data.blocks_to_keyboard) as u64;
+                    column.data.notes_to_keyboard += notes_len;
+                    column.data.blocks_to_keyboard += 1;
                 }
             } else {
                 // No change in view start
             }
 
-            data.block_range = new_block_start..new_block_end;
+            column.data.block_range = new_block_start..new_block_end;
         });
     }
 }
@@ -164,7 +167,7 @@ struct InRamNoteBlockIter<'a, Iter: Iterator<Item = DisplacedMIDINote>> {
 
 pub struct InRamNoteColumnView<'a> {
     view: &'a InRamNoteViewData,
-    column: &'a InRamNoteColumn,
+    column: &'a FlatNoteColumn,
     view_range: MIDIViewRange,
 }
 
@@ -181,10 +184,11 @@ impl<'a> MIDINoteColumnView for InRamNoteColumnView<'a> {
             #[coroutine]
             move || {
                 for block_index in self.column.data.block_range.clone().rev() {
-                    let block = &self.column.blocks[block_index];
-                    let start = (block.start - self.view_range.start) as f32;
+                    let block_info = self.column.get_block_info(block_index);
+                    let start = (block_info.start - self.view_range.start) as f32;
+                    let notes = self.column.get_block_notes(block_index);
 
-                    for note in block.notes.iter().rev() {
+                    for note in notes.iter().rev() {
                         yield DisplacedMIDINote {
                             start,
                             len: note.len,

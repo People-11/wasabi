@@ -16,7 +16,9 @@ use palette::{convert::FromColorUnclamped, Hsv, Srgb};
 use rand::seq::IteratorRandom;
 use rand::Rng;
 
-pub use cake::{blocks::CakeBlock, intvec4::IntVector4, CakeMIDIFile, CakeSignature};
+pub use cake::{
+    blocks::FlatCakeBlocks, intvec4::IntVector4, CakeMIDIFile, CakeSignature,
+};
 pub use live::LiveLoadMIDIFile;
 pub use ram::InRamMIDIFile;
 

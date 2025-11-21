@@ -9,20 +9,20 @@ use crossbeam_channel::Receiver;
 use crate::{
     audio_playback::WasabiAudioPlayer,
     midi::shared::{
-        audio::CompressedAudio,
+        audio::RawAudioBlock,
         timer::{TimeListener, UnpauseWaitResult, WaitResult},
     },
 };
 
 pub struct LiveAudioPlayer {
-    events: Receiver<CompressedAudio>,
+    events: Receiver<RawAudioBlock>,
     timer: TimeListener,
     player: Arc<WasabiAudioPlayer>,
 }
 
 impl LiveAudioPlayer {
     pub fn new(
-        events: Receiver<CompressedAudio>,
+        events: Receiver<RawAudioBlock>,
         timer: TimeListener,
         player: Arc<WasabiAudioPlayer>,
     ) -> Self {
@@ -39,7 +39,7 @@ impl LiveAudioPlayer {
 
             let max_fall_time = 0.1;
 
-            let push_cc = |e: &CompressedAudio| {
+            let push_cc = |e: &RawAudioBlock| {
                 self.player.push_events(e.iter_control_events());
             };
 

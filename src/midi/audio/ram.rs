@@ -7,13 +7,13 @@ use time::Duration;
 use crate::{
     audio_playback::WasabiAudioPlayer,
     midi::shared::{
-        audio::CompressedAudio,
+        audio::FlatAudio,
         timer::{SeekWaitResult, TimeListener, UnpauseWaitResult, WaitResult},
     },
 };
 
 pub struct InRamAudioPlayer {
-    events: Vec<CompressedAudio>,
+    events: Arc<FlatAudio>,
     timer: TimeListener,
     player: Arc<WasabiAudioPlayer>,
     index: usize,
@@ -21,7 +21,7 @@ pub struct InRamAudioPlayer {
 
 impl InRamAudioPlayer {
     pub fn new(
-        events: Vec<CompressedAudio>,
+        events: Arc<FlatAudio>,
         timer: TimeListener,
         player: Arc<WasabiAudioPlayer>,
     ) -> Self {
@@ -54,7 +54,7 @@ impl InRamAudioPlayer {
                 }
             }
 
-            if self.index >= self.events.len() {
+            if self.index >= self.events.blocks.len() {
                 match self.timer.wait_until_seeked() {
                     SeekWaitResult::UnpausedAndSeeked(time) => {
                         self.seek_to_time(time.as_seconds_f64());
@@ -64,7 +64,7 @@ impl InRamAudioPlayer {
                 }
             }
 
-            let event = &self.events[self.index];
+            let event = self.events.blocks[self.index];
 
             let time = Duration::seconds_f64(event.time);
             match self.timer.wait_until(time) {
@@ -83,7 +83,7 @@ impl InRamAudioPlayer {
                 }
             }
 
-            self.player.push_events(event.iter_events());
+            self.player.push_events(self.events.iter_events(self.index));
             self.index += 1;
         })
     }
@@ -93,7 +93,7 @@ impl InRamAudioPlayer {
             return 0;
         }
 
-        let events = &self.events;
+        let events = &self.events.blocks;
 
         // Binary search to find the right time segment
 
@@ -130,7 +130,7 @@ impl InRamAudioPlayer {
         self.player.reset();
         for i in 0..(self.index) {
             self.player
-                .push_events(self.events[i].iter_control_events());
+                .push_events(self.events.iter_control_events(i));
         }
     }
 }
