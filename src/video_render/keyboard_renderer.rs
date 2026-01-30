@@ -5,10 +5,12 @@
 
 use crate::gui::window::keyboard_layout::{KeyboardView, KeyPosition};
 use crate::midi::MIDIColor;
+use super::utils::{lerp_u8, set_pixel, draw_solid_rect, draw_gradient_rect, darken_color, lighten_color};
 
 /// Calculate border width (exact copy from utils::calculate_border_width)
 fn calculate_border_width(width_pixels: f32, keys_len: f32) -> f32 {
-    ((width_pixels / keys_len) / 12.0).clamp(1.0, 5.0).round() * 2.0
+    let scale = (width_pixels / 1280.0).max(1.0);
+    ((width_pixels / keys_len) / 12.0).clamp(1.0 * scale, 5.0 * scale).round() * 2.0
 }
 
 /// Render keyboard to a pixel buffer (exact replica of the original)
@@ -54,7 +56,7 @@ pub fn render_keyboard(
     }
     
     // Draw coloured bar
-    draw_bar_exact(buffer, width, height, rect_top as f32, top, black_key_overlap, bar_color);
+    draw_bar_exact(buffer, width, height, top, black_key_overlap, bar_color);
     
     // Draw progress bar (gray bar at very top)
     draw_progress_bar(buffer, width, height, rect_top as f32, top - black_key_overlap);
@@ -69,59 +71,6 @@ pub fn render_keyboard(
                 top, black_bottom, black_key_overlap, md_height, key_border,
                 &map_x,
             );
-        }
-    }
-}
-
-/// Set pixel with bounds checking (BGRA format)
-#[inline]
-fn set_pixel(buffer: &mut [u8], width: u32, height: u32, x: i32, y: i32, b: u8, g: u8, r: u8, a: u8) {
-    if x >= 0 && x < width as i32 && y >= 0 && y < height as i32 {
-        let idx = ((y as u32 * width + x as u32) * 4) as usize;
-        if idx + 3 < buffer.len() {
-            buffer[idx] = b;
-            buffer[idx + 1] = g;
-            buffer[idx + 2] = r;
-            buffer[idx + 3] = a;
-        }
-    }
-}
-
-#[inline]
-fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
-    (a as f32 * (1.0 - t) + b as f32 * t) as u8
-}
-
-/// Draw a gradient rectangle (vertical gradient between top_color and bottom_color)
-fn draw_gradient_rect(
-    buffer: &mut [u8], width: u32, height: u32,
-    left: i32, right: i32, top: i32, bottom: i32,
-    top_color: (u8, u8, u8), bottom_color: (u8, u8, u8),
-) {
-    if top >= bottom || left >= right {
-        return;
-    }
-    let rect_height = (bottom - top) as f32;
-    for y in top.max(0)..bottom.min(height as i32) {
-        let t = (y - top) as f32 / rect_height;
-        let r = lerp_u8(top_color.0, bottom_color.0, t);
-        let g = lerp_u8(top_color.1, bottom_color.1, t);
-        let b = lerp_u8(top_color.2, bottom_color.2, t);
-        for x in left.max(0)..right.min(width as i32) {
-            set_pixel(buffer, width, height, x, y, b, g, r, 255);
-        }
-    }
-}
-
-/// Draw a solid rectangle
-fn draw_solid_rect(
-    buffer: &mut [u8], width: u32, height: u32,
-    left: i32, right: i32, top: i32, bottom: i32,
-    color: (u8, u8, u8),
-) {
-    for y in top.max(0)..bottom.min(height as i32) {
-        for x in left.max(0)..right.min(width as i32) {
-            set_pixel(buffer, width, height, x, y, color.2, color.1, color.0, 255);
         }
     }
 }
@@ -142,16 +91,8 @@ fn draw_white_key_exact<F: Fn(f32) -> i32>(
     if let Some(c) = color {
         // Pressed white key
         let base = (c.red(), c.green(), c.blue());
-        let darkened = (
-            (c.red() as f32 * 0.6) as u8,
-            (c.green() as f32 * 0.6) as u8,
-            (c.blue() as f32 * 0.6) as u8,
-        );
-        let darkened2 = (
-            (c.red() as f32 * 0.3) as u8,
-            (c.green() as f32 * 0.3) as u8,
-            (c.blue() as f32 * 0.3) as u8,
-        );
+        let darkened = darken_color(base, 0.6);
+        let darkened2 = darken_color(base, 0.3);
         
         // Top section: darkened2 -> darkened
         draw_gradient_rect(buffer, width, height, left, right, top_i, overlap_y, darkened2, darkened);
@@ -187,24 +128,19 @@ fn draw_white_key_exact<F: Fn(f32) -> i32>(
 /// Draw coloured bar with gradient
 fn draw_bar_exact(
     buffer: &mut [u8], width: u32, height: u32,
-    _rect_top: f32, top: f32, black_key_overlap: f32,
+    top: f32, black_key_overlap: f32,
     bar_color: [u8; 4], // BGRA
 ) {
     let bar_top = (top - black_key_overlap) as i32;
     let bar_bottom = top as i32;
     
-    // bar_color is BGRA
-    let bar_r = bar_color[2];
-    let bar_g = bar_color[1];
-    let bar_b = bar_color[0];
-    
-    let dark_r = (bar_r as f32 * 0.3) as u8;
-    let dark_g = (bar_g as f32 * 0.3) as u8;
-    let dark_b = (bar_b as f32 * 0.3) as u8;
+    // bar_color is BGRA, convert to RGB tuple
+    let bar = (bar_color[2], bar_color[1], bar_color[0]);
+    let dark = darken_color(bar, 0.3);
     
     draw_gradient_rect(
         buffer, width, height, 0, width as i32, bar_top, bar_bottom,
-        (dark_r, dark_g, dark_b), (bar_r, bar_g, bar_b),
+        dark, bar,
     );
 }
 
@@ -228,7 +164,6 @@ fn draw_black_key_exact<F: Fn(f32) -> i32>(
 ) {
     let left = map_x(key.left);
     let right = map_x(key.right);
-    // let top_i = top as i32; // Unused
     let black_bottom_i = black_bottom as i32;
     
     // Key horizontal dimensions (constant)
@@ -244,22 +179,17 @@ fn draw_black_key_exact<F: Fn(f32) -> i32>(
         let inner_bottom = (black_bottom - bk_md_height) as i32;
 
         let base = (c.red(), c.green(), c.blue());
-        let darkened = (
-            (c.red() as f32 * 0.76) as u8,
-            (c.green() as f32 * 0.76) as u8,
-            (c.blue() as f32 * 0.76) as u8,
-        );
-        let lightened = (
-            (c.red() as f32 * 1.3).min(255.0) as u8,
-            (c.green() as f32 * 1.3).min(255.0) as u8,
-            (c.blue() as f32 * 1.3).min(255.0) as u8,
-        );
+        let darkened = darken_color(base, 0.76);
+        let lightened = lighten_color(base, 1.3);
         
         // Bottom bevel: base -> darkened (with inset)
-        draw_gradient_rect(buffer, width, height, 
-            left + key_border as i32, right - key_border as i32, 
-            inner_bottom, black_bottom_i, 
-            base, darkened);
+        draw_trapezoid_vertical_gradient(
+            buffer, width, height,
+            inner_bottom, black_bottom_i,
+            (left + key_border as i32) as f32, (right - key_border as i32) as f32,
+            left as f32, right as f32,
+            base, darkened
+        );
         
         // Left side bevel: lightened -> darkened (Horizontal)
         draw_slanted_vertical_gradient_strip(
@@ -287,10 +217,13 @@ fn draw_black_key_exact<F: Fn(f32) -> i32>(
         let inner_bottom = (black_bottom - md_height) as i32;
 
         // Bottom bevel: gray(105) -> gray(20)
-        draw_gradient_rect(buffer, width, height, 
-            left + key_border as i32, right - key_border as i32, 
-            inner_bottom, black_bottom_i, 
-            (105, 105, 105), (20, 20, 20));
+        draw_trapezoid_vertical_gradient(
+            buffer, width, height,
+            inner_bottom, black_bottom_i,
+            (left + key_border as i32) as f32, (right - key_border as i32) as f32,
+            left as f32, right as f32,
+            (105, 105, 105), (20, 20, 20)
+        );
         
         // Left side bevel: dark edge -> light inner
         draw_slanted_vertical_gradient_strip(
@@ -334,18 +267,30 @@ fn draw_slanted_vertical_gradient_strip(
             continue;
         }
         
-        let t = (x - x_start) as f32 / total_w;
+        // Calculate t for the left edge of the pixel column
+        let t0 = (x - x_start) as f32 / total_w;
+        // Calculate t for the right edge of the pixel column (for conservative coverage)
+        let t1 = (x + 1 - x_start) as f32 / total_w;
         
-        let y_top = (y_top_start * (1.0 - t) + y_top_end * t) as i32;
-        let y_bottom = (y_bottom_start * (1.0 - t) + y_bottom_end * t) as i32;
+        let y_top_0 = (y_top_start * (1.0 - t0) + y_top_end * t0) as i32;
+        let y_top_1 = (y_top_start * (1.0 - t1) + y_top_end * t1) as i32;
+        // Use the minimum top Y (highest point) to cover the full pixel
+        let y_top = y_top_0.min(y_top_1);
+
+        let y_bottom_0 = (y_bottom_start * (1.0 - t0) + y_bottom_end * t0) as i32;
+        let y_bottom_1 = (y_bottom_start * (1.0 - t1) + y_bottom_end * t1) as i32;
+        // Use the maximum bottom Y (lowest point) to cover the full pixel
+        let y_bottom = y_bottom_0.max(y_bottom_1);
         
         if y_top >= y_bottom {
             continue;
         }
         
-        let r = lerp_u8(color_start.0, color_end.0, t);
-        let g = lerp_u8(color_start.1, color_end.1, t);
-        let b = lerp_u8(color_start.2, color_end.2, t);
+        // Use color at the center of the pixel for smoothness
+        let t_center = (x as f32 + 0.5 - x_start as f32) / total_w;
+        let r = lerp_u8(color_start.0, color_end.0, t_center);
+        let g = lerp_u8(color_start.1, color_end.1, t_center);
+        let b = lerp_u8(color_start.2, color_end.2, t_center);
         
         for y in y_top.max(0)..y_bottom.min(height as i32) {
              set_pixel(buffer, width, height, x, y, b, g, r, 255);
@@ -353,3 +298,31 @@ fn draw_slanted_vertical_gradient_strip(
     }
 }
 
+/// Draw a trapezoid with vertical gradient
+fn draw_trapezoid_vertical_gradient(
+    buffer: &mut [u8], width: u32, height: u32,
+    top_y: i32, bottom_y: i32,
+    top_left_x: f32, top_right_x: f32,
+    bottom_left_x: f32, bottom_right_x: f32,
+    top_color: (u8, u8, u8), bottom_color: (u8, u8, u8),
+) {
+     let total_h = (bottom_y - top_y) as f32;
+     for y in top_y..bottom_y {
+         if y < 0 || y >= height as i32 { continue; }
+         let t = (y - top_y) as f32 / total_h;
+         let color = (
+             lerp_u8(top_color.0, bottom_color.0, t),
+             lerp_u8(top_color.1, bottom_color.1, t),
+             lerp_u8(top_color.2, bottom_color.2, t),
+         );
+         
+         // Use floor/ceil to be slightly generous with horizontal coverage
+         let start_x = (top_left_x * (1.0 - t) + bottom_left_x * t).floor() as i32;
+         let end_x = (top_right_x * (1.0 - t) + bottom_right_x * t).ceil() as i32;
+         
+         for x in start_x..end_x {
+              if x < 0 || x >= width as i32 { continue; }
+              set_pixel(buffer, width, height, x, y, color.2, color.1, color.0, 255);
+         }
+     }
+}

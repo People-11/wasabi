@@ -129,8 +129,7 @@ impl ManagedSwapchain {
             ..self.swap_chain.create_info()
         }) {
             Ok(r) => r,
-            Err(Validated::Error { .. }) => return,
-            Err(e) => panic!("Failed to recreate swapchain: {e:?}"),
+            Err(_) => return,
         };
         self.swap_chain = new_swapchain;
         let new_images = new_images
@@ -170,23 +169,18 @@ impl ManagedSwapchain {
         loop {
             tries += 1;
             if tries > 10 {
-                panic!("Failed to acquire next image after 10 tries");
+                return None;
             }
 
             let next = vulkano::swapchain::acquire_next_image(self.swap_chain.clone(), None);
 
             let (image_num, suboptimal, acquire_future) = match next {
                 Ok(r) => r,
-                // TODO: Handle more errors, e.g. DeviceLost, by re-creating the entire graphics chain
-                Err(Validated::Error(e)) => {
-                    if e == VulkanError::OutOfDate {
-                        self.recreate();
-                        continue;
-                    } else {
-                        panic!("Failed to acquire next image: {e:?}");
-                    }
+                Err(Validated::Error(VulkanError::OutOfDate)) => {
+                    self.recreate();
+                    continue;
                 }
-                Err(e) => panic!("Unknown error: {e:?}"),
+                Err(_) => return None,
             };
 
             if suboptimal {
@@ -232,17 +226,11 @@ impl<'a> SwapchainFrame<'a> {
             Ok(future) => {
                 sc.previous_frame_end = Some(future.boxed());
             }
-            Err(Validated::Error(e)) => {
-                if e == VulkanError::OutOfDate {
-                    sc.recreate_on_next_frame = true;
-                    sc.previous_frame_end = Some(sync::now(sc.device.clone()).boxed());
-                } else {
-                    println!("Failed to flush future: {e:?}");
-                    sc.previous_frame_end = Some(sync::now(sc.device.clone()).boxed());
-                }
+            Err(Validated::Error(VulkanError::OutOfDate)) => {
+                sc.recreate_on_next_frame = true;
+                sc.previous_frame_end = Some(sync::now(sc.device.clone()).boxed());
             }
-            Err(e) => {
-                println!("Unknown error: {e:?}");
+            Err(_) => {
                 sc.previous_frame_end = Some(sync::now(sc.device.clone()).boxed());
             }
         }

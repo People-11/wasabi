@@ -25,7 +25,7 @@ use vulkano::{
     VulkanLibrary,
 };
 
-use crate::gui::window::keyboard_layout::{KeyboardLayout, KeyboardParams, KeyboardView};
+use crate::gui::window::keyboard_layout::{KeyboardLayout, KeyboardParams};
 use crate::gui::window::scene::note_list_system::NoteRenderer;
 use crate::midi::MIDIFile;
 use crate::settings::WasabiSettings;
@@ -34,8 +34,6 @@ use crate::settings::WasabiSettings;
 pub struct OffscreenRenderer {
     device: Arc<Device>,
     queue: Arc<Queue>,
-    #[allow(dead_code)]
-    allocator: Arc<StandardMemoryAllocator>,
     cb_allocator: Arc<StandardCommandBufferAllocator>,
     
     // Render target
@@ -58,7 +56,7 @@ pub struct OffscreenRenderer {
 
 impl OffscreenRenderer {
     /// Create a new offscreen renderer with the specified dimensions
-    pub fn new(width: u32, height: u32, _settings: &WasabiSettings) -> Result<Self, String> {
+    pub fn new(width: u32, height: u32) -> Result<Self, String> {
         // Initialize Vulkan without a window
         let library = VulkanLibrary::new()
             .map_err(|e| format!("Failed to load Vulkan library: {}", e))?;
@@ -173,7 +171,6 @@ impl OffscreenRenderer {
         Ok(Self {
             device,
             queue,
-            allocator,
             cb_allocator,
             render_image,
             staging_buffer,
@@ -185,13 +182,6 @@ impl OffscreenRenderer {
         })
     }
 
-    /// Get keyboard view based on settings
-    #[allow(dead_code)]
-    pub fn get_keyboard_view(&self, settings: &WasabiSettings) -> KeyboardView<'_> {
-        let first_key = *settings.scene.key_range.start() as usize;
-        let last_key = *settings.scene.key_range.end() as usize;
-        self.keyboard_layout.get_view_for_keys(first_key, last_key)
-    }
 
     /// Render a frame and return the pixel data (BGRA format)
     pub fn render_frame(
@@ -340,10 +330,5 @@ impl OffscreenRenderer {
         Ok(frame)
     }
 
-    /// Get frame dimensions
-    #[allow(dead_code)]
-    pub fn dimensions(&self) -> (u32, u32) {
-        (self.width, self.height)
-    }
 }
 

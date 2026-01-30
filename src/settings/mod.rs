@@ -27,6 +27,7 @@ pub struct GuiSettings {
     pub vsync: bool,
     pub skip_control: f64,
     pub speed_control: f64,
+    pub ffmpeg_path: Option<PathBuf>,
 }
 
 impl Default for GuiSettings {
@@ -36,6 +37,7 @@ impl Default for GuiSettings {
             vsync: true,
             skip_control: 1.0,
             speed_control: 0.05,
+            ffmpeg_path: None,
         }
     }
 }

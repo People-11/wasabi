@@ -2,6 +2,7 @@
 //!
 //! Handles piping raw frame data to FFmpeg for H.265 encoding.
 //! Uses an async channel to decouple rendering from encoding.
+//! Automatically detects and uses hardware acceleration when available.
 
 use std::io::Write;
 use std::path::Path;
@@ -13,6 +14,56 @@ use std::thread::{self, JoinHandle};
 enum WriterMessage {
     Frame(Vec<u8>),
     Finish,
+}
+
+/// Available hardware encoders (in priority order)
+#[derive(Debug, Clone, Copy)]
+enum HwEncoder {
+    NvencHevc,   // NVIDIA
+    AmfHevc,     // AMD
+    QsvHevc,     // Intel
+    Software,    // Fallback: libx265
+}
+
+impl HwEncoder {
+    fn codec_name(&self) -> &'static str {
+        match self {
+            HwEncoder::NvencHevc => "hevc_nvenc",
+            HwEncoder::AmfHevc => "hevc_amf",
+            HwEncoder::QsvHevc => "hevc_qsv",
+            HwEncoder::Software => "libx265",
+        }
+    }
+    
+    fn quality_args(&self) -> Vec<&'static str> {
+        match self {
+            // NVENC: Use slowest preset for best quality, CQ mode
+            HwEncoder::NvencHevc => vec![
+                "-preset", "p7",        // Slowest = best quality
+                "-tune", "hq",          // High quality tuning
+                "-rc", "vbr",           // Variable bitrate
+                "-cq", "26",            // Quality level (like CRF)
+                "-b:v", "0",            // Let CQ control quality
+            ],
+            // AMF: Quality preset with CQP mode
+            HwEncoder::AmfHevc => vec![
+                "-quality", "quality",  // Quality preset
+                "-rc", "cqp",           // Constant QP mode
+                "-qp_i", "26",
+                "-qp_p", "26",
+            ],
+            // QSV: Veryslow for best quality
+            HwEncoder::QsvHevc => vec![
+                "-preset", "veryslow",
+                "-global_quality", "26",
+            ],
+            // Software: Best quality settings
+            HwEncoder::Software => vec![
+                "-crf", "24",
+                "-preset", "medium",
+            ],
+        }
+    }
 }
 
 /// FFmpeg video encoder with async writing
@@ -28,6 +79,51 @@ pub struct FFmpegEncoder {
     writer_thread: Option<JoinHandle<std::io::Result<()>>>,
     width: u32,
     height: u32,
+}
+
+/// Detect available hardware encoder by testing FFmpeg
+fn detect_hw_encoder(ffmpeg_path: &Path) -> HwEncoder {
+    let encoders_to_try = [
+        HwEncoder::NvencHevc,
+        HwEncoder::AmfHevc,
+        HwEncoder::QsvHevc,
+    ];
+    
+    for encoder in encoders_to_try {
+        if test_encoder(ffmpeg_path, encoder) {
+            println!("[FFmpegEncoder] Detected hardware encoder: {:?}", encoder);
+            return encoder;
+        }
+    }
+    
+    println!("[FFmpegEncoder] No hardware encoder detected, using software (libx265)");
+    HwEncoder::Software
+}
+
+/// Test if an encoder is available by running FFmpeg with a minimal test
+fn test_encoder(ffmpeg_path: &Path, encoder: HwEncoder) -> bool {
+    let mut cmd = Command::new(ffmpeg_path);
+    cmd.arg("-hide_banner")
+       .args(["-loglevel", "error"])
+       .arg("-f").arg("lavfi")
+       .arg("-i").arg("nullsrc=s=1280x720:d=0.1")
+       .arg("-c:v").arg(encoder.codec_name())
+       .arg("-f").arg("null")
+       .arg("-");
+    
+    // Hide console window on Windows
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    cmd.stdout(Stdio::null())
+       .stderr(Stdio::null())
+       .status()
+       .map(|s| s.success())
+       .unwrap_or(false)
 }
 
 impl FFmpegEncoder {
@@ -46,9 +142,9 @@ impl FFmpegEncoder {
         height: u32,
         fps: u32,
     ) -> std::io::Result<Self> {
-        // FFmpeg command:
-        // Input: raw video (BGRA from Vulkan)
-        // Output: H.265, CRF=24, medium preset
+        // Auto-detect best encoder
+        let encoder = detect_hw_encoder(ffmpeg_path);
+        
         let mut cmd = Command::new(ffmpeg_path);
         cmd
             // Hide banner
@@ -60,9 +156,13 @@ impl FFmpegEncoder {
             .args(["-framerate", &fps.to_string()])
             .args(["-i", "-"]) // Read from stdin
             // Output encoding
-            .args(["-c:v", "libx265"])
-            .args(["-crf", "24"])
-            .args(["-preset", "medium"])
+            .args(["-c:v", encoder.codec_name()]);
+        
+        // Add encoder-specific quality args
+        for arg in encoder.quality_args() {
+            cmd.arg(arg);
+        }
+        cmd
             .args(["-pix_fmt", "yuv420p"])
             // Overwrite output file
             .arg("-y")
@@ -146,12 +246,14 @@ impl FFmpegEncoder {
         Ok(())
     }
 
-    /// Cancel encoding and kill the FFmpeg process
+    /// Cancel encoding but let FFmpeg finish muxing (produces valid partial video)
     pub fn cancel(&mut self) -> std::io::Result<()> {
-        // Drop sender to signal writer thread to stop
-        self.sender = None;
+        // Send finish signal to complete muxing properly
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(WriterMessage::Finish);
+        }
         
-        // Wait for writer thread (it will handle killing the process)
+        // Wait for writer thread to complete muxing
         if let Some(handle) = self.writer_thread.take() {
             let _ = handle.join();
         }

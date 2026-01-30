@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use egui::{ComboBox, ProgressBar};
 
-use crate::video_render::{RenderConfig, render_loop::RenderLoop};
+use crate::video_render::{RenderConfig, render_loop::start_render};
 use crate::{settings::WasabiSettings, state::WasabiState, utils};
 
 use super::render_state::{RenderFrameRate, RenderResolution};
@@ -12,11 +12,20 @@ impl GuiWasabiWindow {
     pub fn show_render(
         &mut self,
         ctx: &egui::Context,
-        settings: &WasabiSettings,
+        settings: &mut WasabiSettings,
         state: &mut WasabiState,
     ) {
         if !state.show_render {
             return;
+        }
+        
+        // Initialize FFmpeg path from settings if not set
+        if state.render_state.ffmpeg_path.is_none() {
+            if let Some(ref path) = settings.gui.ffmpeg_path {
+                if path.exists() {
+                    state.render_state.ffmpeg_path = Some(path.clone());
+                }
+            }
         }
 
         // Remove shadow and customize frame
@@ -37,13 +46,15 @@ impl GuiWasabiWindow {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .movable(false)
             .show(ctx, |ui| {
+                // Disable text selection in this window
+                ui.style_mut().interaction.selectable_labels = false;
                 ui.add_space(10.0);
                 
                 // Determine if interaction is allowed
                 let is_rendering = state.render_state.is_rendering;
                 
                 ui.add_enabled_ui(!is_rendering, |ui| {
-                     self.render_settings_ui(ui, state);
+                     self.render_settings_ui(ui, settings, state);
                 });
 
                 ui.add_space(15.0);
@@ -62,7 +73,7 @@ impl GuiWasabiWindow {
             });
     }
 
-    fn render_settings_ui(&mut self, ui: &mut egui::Ui, state: &mut WasabiState) {
+    fn render_settings_ui(&mut self, ui: &mut egui::Ui, settings: &mut WasabiSettings, state: &mut WasabiState) {
         ui.heading("Input Sources");
         ui.add_space(5.0);
         egui::Grid::new("render_input_grid")
@@ -70,7 +81,6 @@ impl GuiWasabiWindow {
             .spacing([10.0, 8.0])
             .min_col_width(80.0)
             .show(ui, |ui| {
-                // MIDI
                 ui.label("MIDI File:");
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -82,16 +92,24 @@ impl GuiWasabiWindow {
                                 .set_directory(last_location.parent().unwrap_or(std::path::Path::new("./")))
                                 .pick_file()
                             {
+                                // Set output path to same name but .mp4
+                                let mut output = path.clone();
+                                output.set_extension("mp4");
+                                state.render_state.output_path = Some(output);
                                 state.render_state.midi_path = Some(path);
                             }
                         }
                         
                         let text = if let Some(path) = &state.render_state.midi_path {
-                            path.file_name().unwrap_or_default().to_string_lossy().to_string()
+                            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            if name.len() > 30 {
+                                format!("{}...", &name[..27])
+                            } else {
+                                name
+                            }
                         } else {
                             "(None selected)".to_string()
                         };
-                        // Ellide text if too long?
                         ui.label(egui::RichText::new(text).strong());
                     });
                 });
@@ -107,11 +125,19 @@ impl GuiWasabiWindow {
                                 .set_title("Select ffmpeg.exe")
                                 .pick_file()
                             {
-                                state.render_state.ffmpeg_path = Some(path);
+                                state.render_state.ffmpeg_path = Some(path.clone());
+                                // Save to settings
+                                settings.gui.ffmpeg_path = Some(path);
+                                let _ = settings.save_to_file();
                             }
                         }
                         let text = if let Some(path) = &state.render_state.ffmpeg_path {
-                            path.file_name().unwrap_or_default().to_string_lossy().to_string()
+                            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            if name.len() > 30 {
+                                format!("{}...", &name[..27])
+                            } else {
+                                name
+                            }
                         } else {
                             "(None selected)".to_string()
                         };
@@ -134,11 +160,21 @@ impl GuiWasabiWindow {
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                          if ui.button("Browse...").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
+                            let mut dialog = rfd::FileDialog::new()
                                 .add_filter("MP4 Video", &["mp4"])
-                                .set_title("Save video as...")
-                                .save_file()
-                            {
+                                .set_title("Save video as...");
+                            
+                            // Pre-fill directory and filename if available
+                            if let Some(ref current_path) = state.render_state.output_path {
+                                if let Some(parent) = current_path.parent() {
+                                    dialog = dialog.set_directory(parent);
+                                }
+                                if let Some(filename) = current_path.file_name() {
+                                    dialog = dialog.set_file_name(filename.to_string_lossy());
+                                }
+                            }
+                            
+                            if let Some(path) = dialog.save_file() {
                                 let path = if path.extension().is_none() {
                                     path.with_extension("mp4")
                                 } else {
@@ -148,7 +184,12 @@ impl GuiWasabiWindow {
                             }
                         }
                         let text = if let Some(path) = &state.render_state.output_path {
-                            path.file_name().unwrap_or_default().to_string_lossy().to_string()
+                            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            if name.len() > 30 {
+                                format!("{}...", &name[..27])
+                            } else {
+                                name
+                            }
                         } else {
                             "(None selected)".to_string()
                         };
@@ -220,9 +261,10 @@ impl GuiWasabiWindow {
                         total_frames: Arc::clone(&state.render_state.progress.total_frames),
                         is_cancelled: Arc::clone(&state.render_state.progress.is_cancelled),
                         is_complete: Arc::clone(&state.render_state.progress.is_complete),
+                        is_parsing: Arc::clone(&state.render_state.progress.is_parsing),
                     };
                     
-                    RenderLoop::start(config, progress);
+                    start_render(config, progress);
                 }
             });
         });
@@ -231,7 +273,11 @@ impl GuiWasabiWindow {
     fn render_progress_ui(&mut self, ui: &mut egui::Ui, state: &mut WasabiState) {
         ui.vertical_centered(|ui| {
             // Heading
-            ui.heading("Rendering in Progress...");
+            if state.render_state.progress.is_parsing.load(std::sync::atomic::Ordering::Relaxed) {
+                ui.heading("Parsing MIDI Info...");
+            } else {
+                ui.heading("Rendering in Progress...");
+            }
             
             // Consistent Spacing 1
             ui.add_space(15.0);

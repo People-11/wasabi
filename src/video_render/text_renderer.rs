@@ -4,6 +4,7 @@
 
 use rusttype::{Font, Scale, Point};
 use std::sync::OnceLock;
+use super::utils::lerp_u8;
 
 static FONT: OnceLock<Font<'static>> = OnceLock::new();
 
@@ -14,11 +15,6 @@ pub fn get_font() -> &'static Font<'static> {
     })
 }
 
-#[inline]
-fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
-    (a as f32 * (1.0 - t) + b as f32 * t) as u8
-}
-
 /// Measure text width in pixels using TTF
 pub fn measure_text_width_ttf(text: &str, size: f32) -> i32 {
     let font = get_font();
@@ -26,8 +22,8 @@ pub fn measure_text_width_ttf(text: &str, size: f32) -> i32 {
     let v_metrics = font.v_metrics(scale);
     let offset = Point { x: 0.0, y: v_metrics.ascent };
     
-    let glyphs: Vec<_> = font.layout(text, scale, offset).collect();
-    if let Some(last) = glyphs.last() {
+    // Optimization: Don't collect into Vec, just get the last glyph directly
+    if let Some(last) = font.layout(text, scale, offset).last() {
         if let Some(bb) = last.pixel_bounding_box() {
              return bb.max.x;
         }
@@ -64,17 +60,10 @@ pub fn draw_text_ttf(
                     if idx + 3 < buffer.len() {
                         let alpha = (v * 255.0 * (color[3] as f32 / 255.0)) as u8;
                         if alpha > 0 {
-                            let bg_b = buffer[idx];
-                            let bg_g = buffer[idx + 1];
-                            let bg_r = buffer[idx + 2];
-                            
-                            // Alpha blend
-                            // color is BGRA based on usage
                             let a = alpha as f32 / 255.0;
-                            
-                            buffer[idx] = lerp_u8(bg_b, color[0], a);     // B
-                            buffer[idx+1] = lerp_u8(bg_g, color[1], a);   // G
-                            buffer[idx+2] = lerp_u8(bg_r, color[2], a);   // R
+                            buffer[idx] = lerp_u8(buffer[idx], color[0], a);
+                            buffer[idx+1] = lerp_u8(buffer[idx+1], color[1], a);
+                            buffer[idx+2] = lerp_u8(buffer[idx+2], color[2], a);
                         }
                     }
                 }

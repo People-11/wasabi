@@ -252,7 +252,7 @@ impl GuiKeyboard {
                     add_rect_triangles(&mut mesh);
                     mesh.colored_vertex(
                         Pos2::new(map_x(key.right) - 2.0 * key_border, top - black_key_overlap),
-                        lightened,
+                        color,
                     );
                     mesh.colored_vertex(Pos2::new(map_x(key.right), top), darkened);
                     mesh.colored_vertex(
@@ -260,7 +260,7 @@ impl GuiKeyboard {
                             map_x(key.right) - 2.0 * key_border,
                             black_bottom - md_height,
                         ),
-                        lightened,
+                        color,
                     );
                     mesh.colored_vertex(Pos2::new(map_x(key.right), black_bottom), darkened);
 
