@@ -137,7 +137,12 @@ impl ManagedSwapchain {
     }
 
     pub fn take_previous_frame_end(&mut self) -> Option<Box<dyn GpuFuture>> {
-        self.previous_frame_end.take()
+        if let Some(mut future) = self.previous_frame_end.take() {
+            future.cleanup_finished();
+            Some(future)
+        } else {
+            None
+        }
     }
 
     pub fn acquire_frame(&'_ mut self) -> (SwapchainFrame<'_>, SwapchainAcquireFuture) {
@@ -210,12 +215,6 @@ impl<'a> SwapchainFrame<'a> {
 
         match future {
             Ok(future) => {
-                // FIXME: A hack to prevent OutOfMemory error on Nvidia
-                // https://github.com/vulkano-rs/vulkano/issues/627
-                match future.wait(None) {
-                    Ok(x) => x,
-                    Err(err) => println!("err: {err:?}"),
-                }
                 sc.previous_frame_end = Some(future.boxed());
             }
             Err(Validated::Error(e)) => {
