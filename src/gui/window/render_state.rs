@@ -58,6 +58,7 @@ pub struct RenderProgress {
     pub total_frames: Arc<AtomicU64>,
     pub is_cancelled: Arc<AtomicBool>,
     pub is_complete: Arc<AtomicBool>,
+    pub is_parsing: Arc<AtomicBool>,
 }
 
 impl Default for RenderProgress {
@@ -67,6 +68,7 @@ impl Default for RenderProgress {
             total_frames: Arc::new(AtomicU64::new(0)),
             is_cancelled: Arc::new(AtomicBool::new(false)),
             is_complete: Arc::new(AtomicBool::new(false)),
+            is_parsing: Arc::new(AtomicBool::new(true)),
         }
     }
 }
@@ -91,6 +93,7 @@ impl RenderProgress {
         self.total_frames.store(0, Ordering::Relaxed);
         self.is_cancelled.store(false, Ordering::Relaxed);
         self.is_complete.store(false, Ordering::Relaxed);
+        self.is_parsing.store(true, Ordering::Relaxed);
     }
 }
 

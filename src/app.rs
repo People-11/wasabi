@@ -2,11 +2,11 @@ use crate::{renderer::Renderer, settings::WasabiSettings, state::WasabiState, ut
 use egui_winit::winit::event::WindowEvent;
 use winit::{
     application::ApplicationHandler,
-    event_loop::ActiveEventLoop,
+    event_loop::{ActiveEventLoop, ControlFlow},
     window::{Icon, WindowAttributes, WindowId},
 };
 
-const ICON: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icon.bitmap"));
+const ICON: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icon_256.bitmap"));
 
 pub struct WasabiApplication {
     settings: WasabiSettings,
@@ -14,6 +14,7 @@ pub struct WasabiApplication {
 
     renderer: Option<Renderer>,
     current_vsync: bool,
+    minimized: bool,
 }
 
 impl WasabiApplication {
@@ -38,6 +39,7 @@ impl WasabiApplication {
             state,
             renderer: None,
             current_vsync,
+            minimized: false,
         }
     }
 }
@@ -46,7 +48,7 @@ impl ApplicationHandler for WasabiApplication {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.renderer.is_none() {
             let win_attr = WindowAttributes::default()
-                .with_window_icon(Some(Icon::from_rgba(ICON.to_vec(), 16, 16).unwrap()))
+                .with_window_icon(Some(Icon::from_rgba(ICON.to_vec(), 256, 256).unwrap()))
                 .with_inner_size(crate::WINDOW_SIZE)
                 .with_title("Wasabi");
             let window = event_loop.create_window(win_attr).unwrap();
@@ -61,7 +63,9 @@ impl ApplicationHandler for WasabiApplication {
 
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: winit::event::StartCause) {
         if let Some(renderer) = self.renderer.as_mut() {
-            renderer.window().request_redraw();
+            if !self.minimized {
+                renderer.window().request_redraw();
+            }
         }
     }
 
@@ -86,7 +90,14 @@ impl ApplicationHandler for WasabiApplication {
             let _pass_events_to_game = !renderer.gui().update(&event);
             match event {
                 WindowEvent::Resized(size) => {
-                    renderer.resize(Some(size));
+                    if size.width == 0 || size.height == 0 {
+                        self.minimized = true;
+                        event_loop.set_control_flow(ControlFlow::Wait);
+                    } else {
+                        self.minimized = false;
+                        event_loop.set_control_flow(ControlFlow::Poll);
+                        renderer.resize(Some(size));
+                    }
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
                     renderer.resize(None);

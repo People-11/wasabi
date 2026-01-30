@@ -231,11 +231,11 @@ impl GuiWasabiWindow {
                         |ui| {
                             ui.set_min_width(130.0);
 
-                            if ui.button("Render").clicked() {
-                                state.show_render = true;
-                            }
                             if ui.button("Settings").clicked() {
                                 state.show_settings = true;
+                            }
+                            if ui.button("Render").clicked() {
+                                state.show_render = true;
                             }
                             if ui.button("Shortcuts").clicked() {
                                 state.show_shortcuts = true;

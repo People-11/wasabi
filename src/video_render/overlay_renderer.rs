@@ -3,6 +3,7 @@ use crate::midi::MIDIFile;
 use crate::settings::{Statistics, WasabiSettings};
 use crate::utils::convert_seconds_to_time_string;
 use super::text_renderer;
+use super::utils::{lerp_u8, draw_solid_rect_alpha};
 
 /// Draw the overlay statistics
 pub fn draw_overlay(
@@ -11,23 +12,18 @@ pub fn draw_overlay(
     height: u32,
     midi_file: &mut impl MIDIFile,
     current_time: f64,
-    stats: &GuiMidiStats, // We use this for rendered notes count / polyphony passed from renderer
+    stats: &GuiMidiStats,
     nps: u64,
     settings: &WasabiSettings,
 ) {
-    // There is no visible flag in StatisticsSettings, we assume visible if opacity > 0
-    // println!("[Overlay] Opacity: {}, Lines to draw setting: {:?}", settings.scene.statistics.opacity, settings.scene.statistics.order);
-    
-    // We render even if opacity is 0, because opacity controls background transparency,
-    // while text usually remains visible (or user wants transparent background).
-    
-    // Calculate window position and size
     let opacity = settings.scene.statistics.opacity.clamp(0.0, 1.0);
     let alpha = (255.0 * opacity).round() as u8;
     
+    // Scale based on 720p reference height
+    let scale = (height as f32 / 720.0).max(1.0);
     // Stats frame style
-    let pad = if settings.scene.statistics.floating { 12 } else { 0 };
-    let panel_height = 0; // No playback panel in video render usually
+    let pad = if settings.scene.statistics.floating { (12.0 * scale) as i32 } else { 0 };
+    let panel_height = 0;
     let x = pad;
     let y = panel_height + pad;
     
@@ -50,11 +46,8 @@ pub fn draw_overlay(
                     convert_seconds_to_time_string(midi_len)
                 ));
             }
-            Statistics::Fps => {
-                // Skip FPS in video
-            }
-            Statistics::VoiceCount => {
-                // Skip Voice Count in video
+            Statistics::Fps | Statistics::VoiceCount => {
+                // Skip in video render
             }
             Statistics::Rendered => {
                 lines.push(format!("Rendered: {}", numfmt_format(stats.notes_on_screen)));
@@ -80,9 +73,9 @@ pub fn draw_overlay(
     }
     
     // Calculate content height and width
-    let font_size = 24.0;
-    let line_height = font_size as i32 + 4; // Add some leading
-    let spacing = 8;
+    let font_size = 18.0 * scale;
+    let line_height = font_size as i32 + (4.0 * scale) as i32;
+    let spacing = (6.0 * scale) as i32;
     
     // Measure max width
     let mut max_text_width = 0;
@@ -93,36 +86,37 @@ pub fn draw_overlay(
         }
     }
     
-    // Ensure width is enough for 25 digits (e.g. "00000000000000000000000000000")
-    // Using a sample string of 25 '0's to calculate minimum content width.
     let min_digits_width = text_renderer::measure_text_width_ttf("00000000000000000000000000000", font_size);
     
-    let window_width = (max_text_width.max(min_digits_width) + 32).max(200) as u32; // Min 200 or 25 digits, padding 16*2
-    let content_height = lines.len() as i32 * (line_height + spacing) - spacing + 2 * spacing; // padding
+    let window_width = (max_text_width.max(min_digits_width) + (32.0 * scale) as i32).max((200.0 * scale) as i32) as u32;
+    let content_height = lines.len() as i32 * (line_height + spacing) - spacing + 2 * spacing;
     let window_height = content_height;
     
+    let corner_radius = (8.0 * scale) as i32;
     // Draw background
-    let bg_color = (0, 0, 0); // Black
     draw_rounded_rect(
         buffer, width, height, 
         x, y, window_width, window_height as u32, 
-        bg_color, alpha, 8
+        (0, 0, 0), alpha, corner_radius
     );
     
     // Draw border if enabled
     if settings.scene.statistics.border {
+        let thickness = (1.0 * scale).round() as i32;
         draw_rounded_rect_border(
             buffer, width, height,
             x, y, window_width, window_height as u32,
-            (50, 50, 50), 255, 8
+            (50, 50, 50), 255, corner_radius, thickness
         );
     }
     
     // Render text
     let mut text_y = y + spacing;
+    let text_x_pad = (16.0 * scale) as i32;
+
     for line in lines {
-        // Simple layout: "Label: Value"
-        let text_color = [255, 255, 255, 255]; // White
+        // Match egui's default text color (slight gray)
+        let text_color = [210, 210, 210, 255];
         
         if let Some(idx) = line.find(':') {
             let label = &line[0..=idx];
@@ -130,14 +124,14 @@ pub fn draw_overlay(
             
             text_renderer::draw_text_ttf(
                 buffer, width, height, 
-                x + 16, text_y, 
+                x + text_x_pad, text_y, 
                 label, text_color, font_size
             );
             
             let value_width = text_renderer::measure_text_width_ttf(value, font_size);
             text_renderer::draw_text_ttf(
                 buffer, width, height,
-                x + window_width as i32 - 16 - value_width, text_y,
+                x + window_width as i32 - text_x_pad - value_width, text_y,
                 value, text_color, font_size
             );
         } else {
@@ -152,7 +146,7 @@ pub fn draw_overlay(
             } else {
                 text_renderer::draw_text_ttf(
                     buffer, width, height, 
-                    x + 16, text_y, 
+                    x + text_x_pad, text_y, 
                     &line, text_color, font_size
                 );
             }
@@ -187,7 +181,6 @@ fn draw_rounded_rect(
     let bottom = y + h as i32;
     let r2 = radius * radius;
     
-    // Bounds check
     let min_x = x.max(0);
     let max_x = right.min(width as i32);
     let min_y = y.max(0);
@@ -195,7 +188,6 @@ fn draw_rounded_rect(
 
     for py in min_y..max_y {
         for px in min_x..max_x {
-            // Check rounded corners
             let mut inside = true;
             
             // Top-left
@@ -226,15 +218,10 @@ fn draw_rounded_rect(
             if inside {
                 let idx = ((py as u32 * width + px as u32) * 4) as usize;
                 if idx + 3 < buffer.len() {
-                    let bg_b = buffer[idx];
-                    let bg_g = buffer[idx + 1];
-                    let bg_r = buffer[idx + 2];
-                    
                     let a = alpha as f32 / 255.0;
-                    
-                    buffer[idx] = lerp_u8(bg_b, color.2, a);
-                    buffer[idx + 1] = lerp_u8(bg_g, color.1, a);
-                    buffer[idx + 2] = lerp_u8(bg_r, color.0, a);
+                    buffer[idx] = lerp_u8(buffer[idx], color.2, a);
+                    buffer[idx + 1] = lerp_u8(buffer[idx + 1], color.1, a);
+                    buffer[idx + 2] = lerp_u8(buffer[idx + 2], color.0, a);
                 }
             }
         }
@@ -244,47 +231,14 @@ fn draw_rounded_rect(
 fn draw_rounded_rect_border(
     buffer: &mut [u8], width: u32, height: u32,
     x: i32, y: i32, w: u32, h: u32,
-    color: (u8, u8, u8), alpha: u8, radius: i32,
+    color: (u8, u8, u8), alpha: u8, radius: i32, thickness: i32,
 ) {
-    // Simple implementation: draw larger rect then clear inner? No, expensive.
-    // Just draw stroke.
-    // Simplifying: just draw 1px outline for now skipping complex rounded corner stroke math
     // Top
-    draw_solid_rect(buffer, width, height, x + radius, x + w as i32 - radius, y, y + 1, color, alpha);
+    draw_solid_rect_alpha(buffer, width, height, x + radius, x + w as i32 - radius, y, y + thickness, color, alpha);
     // Bottom
-    draw_solid_rect(buffer, width, height, x + radius, x + w as i32 - radius, y + h as i32 - 1, y + h as i32, color, alpha);
+    draw_solid_rect_alpha(buffer, width, height, x + radius, x + w as i32 - radius, y + h as i32 - thickness, y + h as i32, color, alpha);
     // Left
-    draw_solid_rect(buffer, width, height, x, x + 1, y + radius, y + h as i32 - radius, color, alpha);
+    draw_solid_rect_alpha(buffer, width, height, x, x + thickness, y + radius, y + h as i32 - radius, color, alpha);
     // Right
-    draw_solid_rect(buffer, width, height, x + w as i32 - 1, x + w as i32, y + radius, y + h as i32 - radius, color, alpha);
-    
-    // Corners (pixels) - naive
-}
-
-fn draw_solid_rect(
-    buffer: &mut [u8], width: u32, height: u32,
-    left: i32, right: i32, top: i32, bottom: i32,
-    color: (u8, u8, u8), alpha: u8,
-) {
-    for py in top.max(0)..bottom.min(height as i32) {
-        for px in left.max(0)..right.min(width as i32) {
-             let idx = ((py as u32 * width + px as u32) * 4) as usize;
-             if idx + 3 < buffer.len() {
-                 let bg_b = buffer[idx];
-                 let bg_g = buffer[idx + 1];
-                 let bg_r = buffer[idx + 2];
-                 
-                 let a = alpha as f32 / 255.0;
-                 
-                 buffer[idx] = lerp_u8(bg_b, color.2, a);
-                 buffer[idx + 1] = lerp_u8(bg_g, color.1, a);
-                 buffer[idx + 2] = lerp_u8(bg_r, color.0, a);
-             }
-        }
-    }
-}
-
-#[inline]
-fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
-    (a as f32 * (1.0 - t) + b as f32 * t) as u8
+    draw_solid_rect_alpha(buffer, width, height, x + w as i32 - thickness, x + w as i32, y + radius, y + h as i32 - radius, color, alpha);
 }
