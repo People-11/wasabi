@@ -5,7 +5,7 @@ layout(location = 1) in vec2 screen_pos;
 layout(location = 2) in vec2 left_right;
 layout(location = 3) flat in int ticks_height;
 layout(location = 4) flat in int ticks_start;
-layout(location = 5) flat in int buffer_index;
+layout(location = 5) flat in int tree_offset;
 layout(location = 6) flat in int border_width;
 
 layout(location = 0) out vec4 fsout_Color;
@@ -17,23 +17,23 @@ layout(push_constant) uniform PushConstants {
     int screen_height;
 } consts;
 
-layout(set = 0, binding = 0) readonly buffer BufferArray
+layout(set = 0, binding = 0) readonly buffer BufferData
 {
     int BinTree[];
-} buffers[256];
+};
 
 const float pi = 3.1415926535897;
 
 ivec4 getNoteAt(int time) {
-    int nextIndex = buffers[buffer_index].BinTree[0];
+    int nextIndex = tree_offset + BinTree[tree_offset];
 
     int steps = 0;
     while(steps < 100) {
-        int cutoff = buffers[buffer_index].BinTree[nextIndex];
+        int cutoff = BinTree[nextIndex];
 
         int offset = 0;
-        if(time < cutoff) offset = buffers[buffer_index].BinTree[nextIndex + 1];
-        else offset = buffers[buffer_index].BinTree[nextIndex + 2];
+        if(time < cutoff) offset = BinTree[nextIndex + 1];
+        else offset = BinTree[nextIndex + 2];
 
         if (offset > 0) {
             nextIndex -= offset;
@@ -44,9 +44,9 @@ ivec4 getNoteAt(int time) {
         steps++;
     }
 
-    int start = buffers[buffer_index].BinTree[nextIndex];
-    int end = buffers[buffer_index].BinTree[nextIndex + 1];
-    int color = buffers[buffer_index].BinTree[nextIndex + 2];
+    int start = BinTree[nextIndex];
+    int end = BinTree[nextIndex + 1];
+    int color = BinTree[nextIndex + 2];
 
     return ivec4(start, end, color, 0);
 }

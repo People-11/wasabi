@@ -17,7 +17,7 @@ use rand::seq::IteratorRandom;
 use rand::Rng;
 
 pub use cake::{
-    blocks::FlatCakeBlocks, CakeMIDIFile, CakeSignature,
+    CakeMIDIFile, CakeSignature,
 };
 pub use live::LiveLoadMIDIFile;
 pub use ram::InRamMIDIFile;
