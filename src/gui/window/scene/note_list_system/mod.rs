@@ -50,12 +50,26 @@ impl NoteRenderer {
         }
     }
 
+    /// Create a NoteRenderer for offscreen rendering (without egui dependency)
+    pub fn new_offscreen(
+        device: std::sync::Arc<vulkano::device::Device>,
+        queue: std::sync::Arc<vulkano::device::Queue>,
+        format: vulkano::format::Format,
+    ) -> NoteRenderer {
+        NoteRenderer {
+            render_pass: NoteRenderPass::new_offscreen(device, queue, format),
+            thrad_pool: rayon::ThreadPoolBuilder::new().build().unwrap(),
+        }
+    }
+
     pub fn draw(
         &mut self,
         key_view: &KeyboardView,
         final_image: Arc<ImageView>,
         midi_file: &mut impl MIDIFile,
         view_range: f64,
+        bg_color: Option<[f32; 4]>,
+        viewport: Option<vulkano::pipeline::graphics::viewport::Viewport>,
     ) -> RenderResultData {
         let note_views = midi_file.get_current_column_views(view_range);
 
@@ -121,7 +135,7 @@ impl NoteRenderer {
         let view_range = note_views.range().length() as f32;
 
         self.render_pass
-            .draw(final_image, key_view, view_range, |buffer| {
+            .draw(final_image, key_view, view_range, bg_color, viewport, |buffer| {
                 let buffer_length = buffer.len() as usize;
 
                 let buffer_writer = UnsafeSyncCell::new(buffer.write().unwrap());

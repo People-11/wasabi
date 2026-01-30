@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use crate::{
     audio_playback::WasabiAudioPlayer,
-    gui::window::{GuiMessageSystem, LoadingStatus},
+    gui::window::{render_state::RenderState, GuiMessageSystem, LoadingStatus},
 };
 
 #[derive(Default, PartialEq)]
@@ -30,6 +30,9 @@ pub struct WasabiState {
     pub show_settings: bool,
     pub show_shortcuts: bool,
     pub show_about: bool,
+    pub show_render: bool,
+
+    pub render_state: RenderState,
 
     pub settings_tab: SettingsTab,
 
@@ -58,6 +61,9 @@ impl WasabiState {
             show_settings: false,
             show_shortcuts: false,
             show_about: false,
+            show_render: false,
+
+            render_state: RenderState::new(),
 
             settings_tab: SettingsTab::default(),
 

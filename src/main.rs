@@ -11,6 +11,7 @@ mod scenes;
 mod settings;
 mod state;
 mod utils;
+mod video_render;
 
 use app::WasabiApplication;
 use vulkano::swapchain::PresentMode;
