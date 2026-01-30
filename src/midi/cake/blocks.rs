@@ -10,15 +10,15 @@ pub struct CakeBlock {
 /// This stores all 256 keys' IntVector4 data in a single contiguous buffer
 pub struct FlatCakeBlocks {
     block_info: Vec<CakeBlockInfo>,
-    tree_buffer: Vec<i32>,
+    pub tree_buffer: Vec<i32>,
 }
 
 #[derive(Clone, Copy)]
 pub struct CakeBlockInfo {
     pub start_time: u32,
     pub end_time: u32,
-    tree_offset: u32,
-    tree_len: u32,
+    pub tree_offset: usize,
+    pub tree_len: usize,
 }
 
 pub struct CakeNoteData {
@@ -34,8 +34,8 @@ impl FlatCakeBlocks {
         let mut tree_buffer = Vec::new();
 
         for tree in trees {
-            let tree_offset = tree_buffer.len() as u32;
-            let tree_len = tree.len() as u32;
+            let tree_offset = tree_buffer.len();
+            let tree_len = tree.len();
 
             tree_buffer.extend_from_slice(&tree);
 
