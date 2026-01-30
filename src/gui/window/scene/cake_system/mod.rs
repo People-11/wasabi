@@ -40,7 +40,7 @@ use crate::{
         window::keyboard_layout::{KeyPosition, KeyboardView},
         GuiRenderer,
     },
-    midi::{CakeMIDIFile, CakeSignature, FlatCakeBlocks, IntVector4},
+    midi::{CakeMIDIFile, CakeSignature, FlatCakeBlocks},
 };
 
 use super::RenderResultData;
@@ -48,7 +48,7 @@ use super::RenderResultData;
 const BUFFER_ARRAY_LEN: u64 = 256;
 
 struct CakeBuffer {
-    data: Subbuffer<[IntVector4]>,
+    data: Subbuffer<[i32]>,
     start: i32,
     end: i32,
 }
@@ -455,7 +455,7 @@ impl CakeRenderer {
         let colors = (0..flat_blocks.len())
             .map(|key| {
                 flat_blocks
-                    .get_note_at(key, screen_start as u32)
+                    .get_note_at(key, screen_start)
                     .map(|n| n.color)
             })
             .collect();
@@ -464,7 +464,7 @@ impl CakeRenderer {
                 let passed = flat_blocks.get_notes_passed_at(key, screen_end)
                     - flat_blocks.get_notes_passed_at(key, screen_start);
 
-                if flat_blocks.get_note_at(key, screen_start as u32).is_some() {
+                if flat_blocks.get_note_at(key, screen_start).is_some() {
                     passed as u64 + 1
                 } else {
                     passed as u64
