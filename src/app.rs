@@ -13,6 +13,7 @@ pub struct WasabiApplication {
     state: WasabiState,
 
     renderer: Option<Renderer>,
+    current_vsync: bool,
 }
 
 impl WasabiApplication {
@@ -31,10 +32,12 @@ impl WasabiApplication {
             utils::check_for_updates(&state);
         }
 
+        let current_vsync = !settings.gui.vsync;
         Self {
             settings,
             state,
             renderer: None,
+            current_vsync,
         }
     }
 }
@@ -99,19 +102,23 @@ impl ApplicationHandler for WasabiApplication {
                 _ => (),
             }
 
-            let mode = event_loop
-                .available_monitors()
-                .next()
-                .unwrap()
-                .video_modes()
-                .next()
-                .unwrap();
-
             if self.state.fullscreen {
+                let mode = event_loop
+                    .available_monitors()
+                    .next()
+                    .unwrap()
+                    .video_modes()
+                    .next()
+                    .unwrap();
+
                 renderer.set_fullscreen(mode);
                 self.state.fullscreen = false;
             }
-            renderer.set_vsync(self.settings.gui.vsync);
+
+            if self.settings.gui.vsync != self.current_vsync {
+                renderer.set_vsync(self.settings.gui.vsync);
+                self.current_vsync = self.settings.gui.vsync;
+            }
         }
     }
 }

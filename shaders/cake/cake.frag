@@ -19,21 +19,21 @@ layout(push_constant) uniform PushConstants {
 
 layout(set = 0, binding = 0) readonly buffer BufferArray
 {
-    ivec4 BinTree[];
+    int BinTree[];
 } buffers[256];
 
 const float pi = 3.1415926535897;
 
 ivec4 getNoteAt(int time) {
-    int nextIndex = buffers[buffer_index].BinTree[0].x;
+    int nextIndex = buffers[buffer_index].BinTree[0];
 
     int steps = 0;
     while(steps < 100) {
-        ivec4 node = buffers[buffer_index].BinTree[nextIndex];
+        int cutoff = buffers[buffer_index].BinTree[nextIndex];
 
         int offset = 0;
-        if(time < node.x) offset = node.y;
-        else offset = node.z;
+        if(time < cutoff) offset = buffers[buffer_index].BinTree[nextIndex + 1];
+        else offset = buffers[buffer_index].BinTree[nextIndex + 2];
 
         if (offset > 0) {
             nextIndex -= offset;
@@ -44,9 +44,11 @@ ivec4 getNoteAt(int time) {
         steps++;
     }
 
-    ivec4 note = buffers[buffer_index].BinTree[nextIndex];
+    int start = buffers[buffer_index].BinTree[nextIndex];
+    int end = buffers[buffer_index].BinTree[nextIndex + 1];
+    int color = buffers[buffer_index].BinTree[nextIndex + 2];
 
-    return note;
+    return ivec4(start, end, color, 0);
 }
 
 float ticks_to_screen_y(int ticks) {

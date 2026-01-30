@@ -29,7 +29,6 @@ use self::blocks::FlatCakeBlocks;
 use super::{MIDIFileBase, MIDIFileStats, MIDIFileUniqueSignature};
 
 pub mod blocks;
-pub mod intvec4;
 mod tree_serializer;
 mod tree_threader;
 mod unended_note_batch;
