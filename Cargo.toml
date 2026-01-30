@@ -46,6 +46,7 @@ num_enum = "0.7.4"
 palette = "0.7.6"
 colors-transform = "0.2"
 numfmt = "1.2.0"
+rusttype = "0.9"
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows", target_os = "macos"))'.dependencies]
 kdmapi-rs = { package = "kdmapi", git = "https://github.com/BlackMIDIDevs/kdmapi-rs", rev = "994220f" }

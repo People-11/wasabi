@@ -1,5 +1,5 @@
 mod cake_system;
-mod note_list_system;
+pub mod note_list_system;
 
 use egui::{Image, Ui};
 
@@ -85,17 +85,17 @@ impl GuiRenderScene {
             MIDIFileUnion::InRam(file) => self
                 .draw_system
                 .get_note_renderer(state.renderer)
-                .draw(key_view, frame, file, view_range),
+                .draw(key_view, frame, file, view_range, None, None),
 
             MIDIFileUnion::Live(file) => self
                 .draw_system
                 .get_note_renderer(state.renderer)
-                .draw(key_view, frame, file, view_range),
+                .draw(key_view, frame, file, view_range, None, None),
 
             MIDIFileUnion::Cake(file) => self
                 .draw_system
                 .get_cake_renderer(state.renderer)
-                .draw(key_view, frame, file, view_range),
+                .draw(key_view, frame, file, view_range, None),
         };
 
         let img = Image::new((scene_image.id, [size[0] as f32, size[1] as f32].into()));

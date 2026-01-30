@@ -247,11 +247,17 @@ impl Renderer {
         let queue = self.queue();
         let format = self.format();
 
-        // Get the previous frame before starting a new one
-        let previous_frame_future = self.swap_chain.take_previous_frame_end().unwrap();
+        // Get the previous frame first (before acquiring new frame which holds &mut swap_chain)
+        let Some(previous_frame_future) = self.swap_chain.take_previous_frame_end() else {
+            return;
+        };
 
-        // Start a new frame
-        let (frame, acquire_future) = self.swap_chain.acquire_frame();
+        // Start a new frame (returns None if window size is zero, e.g., minimized)
+        let Some((frame, acquire_future)) = self.swap_chain.acquire_frame() else {
+            // Restore previous_frame_end since we're not rendering this frame
+            self.swap_chain.restore_previous_frame_end(previous_frame_future);
+            return;
+        };
 
         // Join the futures
         let future = previous_frame_future.join(acquire_future);

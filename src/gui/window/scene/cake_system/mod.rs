@@ -216,6 +216,7 @@ impl CakeRenderer {
         final_image: Arc<ImageView>,
         midi_file: &mut CakeMIDIFile,
         view_range: f64,
+        bg_color: Option<[f32; 4]>,
     ) -> RenderResultData {
         let img_dims = final_image.image().extent();
         if self.depth_buffer.image().extent() != img_dims {
@@ -324,9 +325,10 @@ impl CakeRenderer {
             key_view.visible_range.len() as f32,
         ) as i32;
 
+        let clear_color = bg_color.unwrap_or([0.0, 0.0, 0.0, 0.0]);
         let (clears, pipeline, render_pass) = (
             vec![
-                Some(ClearValue::from([0.0f32, 0.0, 0.0, 0.0])),
+                Some(ClearValue::from(clear_color)),
                 Some(ClearValue::from(1.0f32)),
             ],
             &self.pipeline_clear,

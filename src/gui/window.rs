@@ -1,13 +1,15 @@
 pub mod fps;
 mod keyboard;
-mod keyboard_layout;
-mod scene;
-mod stats;
+pub mod keyboard_layout;
+pub mod scene;
+pub mod stats;
 
 mod about;
 mod errors;
 mod loading;
 mod playback_panel;
+mod render;
+pub mod render_state;
 mod settings;
 mod shortcuts;
 pub use errors::*;
@@ -194,6 +196,16 @@ impl GuiWasabiWindow {
             self.show_shortcuts(&ctx, state);
         }
 
+        // Show render window (with priority when rendering)
+        if state.show_render || state.render_state.is_rendering {
+            self.show_render(&ctx, settings, state);
+        }
+
+        // If rendering, block other interactions and skip rest of layout
+        if state.render_state.is_rendering {
+            return;
+        }
+
         // Set global keyboard shortcuts
         ctx.input(|events| {
             for event in &events.events {
@@ -340,7 +352,7 @@ impl GuiWasabiWindow {
                 0.0
             };
             let pos = egui::Pos2::new(pad, panel_height + pad);
-            self.draw_stats(&ctx, pos, stats, settings);
+            self.draw_stats(&ctx, pos, stats, settings, false);
         }
 
         // Render errors

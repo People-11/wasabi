@@ -118,6 +118,11 @@ impl ManagedSwapchain {
     }
 
     pub fn recreate(&mut self) {
+        // Skip recreation if size is zero (e.g., window minimized)
+        if self.state.size[0] == 0 || self.state.size[1] == 0 {
+            return;
+        }
+
         let (new_swapchain, new_images) = match self.swap_chain.recreate(SwapchainCreateInfo {
             image_extent: self.state.size,
             present_mode: self.present_mode,
@@ -145,7 +150,17 @@ impl ManagedSwapchain {
         }
     }
 
-    pub fn acquire_frame(&'_ mut self) -> (SwapchainFrame<'_>, SwapchainAcquireFuture) {
+    /// Restore previous_frame_end when a frame is skipped (e.g., window minimized)
+    pub fn restore_previous_frame_end(&mut self, future: Box<dyn GpuFuture>) {
+        self.previous_frame_end = Some(future);
+    }
+
+    pub fn acquire_frame(&'_ mut self) -> Option<(SwapchainFrame<'_>, SwapchainAcquireFuture)> {
+        // Skip if size is zero (e.g., window minimized)
+        if self.state.size[0] == 0 || self.state.size[1] == 0 {
+            return None;
+        }
+
         if self.recreate_on_next_frame {
             self.recreate();
             self.recreate_on_next_frame = false;
@@ -186,7 +201,7 @@ impl ManagedSwapchain {
                 managed_swap_chain: self,
             };
 
-            return (frame, acquire_future);
+            return Some((frame, acquire_future));
         }
     }
 }

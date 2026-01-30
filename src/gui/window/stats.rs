@@ -11,11 +11,11 @@ use crate::{
 };
 
 pub struct GuiMidiStats {
-    time_passed: f64,
-    time_total: f64,
-    notes_on_screen: u64,
-    polyphony: Option<u64>,
-    voice_count: Option<u64>,
+    pub time_passed: f64,
+    pub time_total: f64,
+    pub notes_on_screen: u64,
+    pub polyphony: Option<u64>,
+    pub voice_count: Option<u64>,
 }
 
 impl GuiMidiStats {
@@ -49,6 +49,7 @@ impl GuiWasabiWindow {
         pos: Pos2,
         mut stats: GuiMidiStats,
         settings: &WasabiSettings,
+        is_video_render: bool,
     ) {
         // Prepare frame based on settings
         let opacity = settings.scene.statistics.opacity.clamp(0.0, 1.0);
@@ -126,6 +127,10 @@ impl GuiWasabiWindow {
                             });
                         }
                         Statistics::Fps => {
+                            // Skip FPS display in video render mode
+                            if is_video_render {
+                                continue;
+                            }
                             ui.horizontal(|ui| {
                                 ui.monospace("FPS:");
                                 ui.with_layout(
@@ -137,6 +142,10 @@ impl GuiWasabiWindow {
                             });
                         }
                         Statistics::VoiceCount => {
+                            // Skip Voice Count display in video render mode
+                            if is_video_render {
+                                continue;
+                            }
                             if let Some(voice_count) = stats.voice_count {
                                 ui.horizontal(|ui| {
                                     ui.monospace("Voice Count:");
