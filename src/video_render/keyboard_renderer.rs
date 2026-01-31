@@ -5,23 +5,77 @@
 
 use crate::gui::window::keyboard_layout::{KeyboardView, KeyPosition};
 use crate::midi::MIDIColor;
-use super::utils::{lerp_u8, set_pixel, draw_solid_rect, draw_gradient_rect, darken_color, lighten_color};
+use super::utils::{lerp_u8, draw_solid_rect, draw_gradient_rect, darken_color, lighten_color, calculate_border_width};
 
-/// Calculate border width (exact copy from utils::calculate_border_width)
-fn calculate_border_width(width_pixels: f32, keys_len: f32) -> f32 {
-    let scale = (width_pixels / 1280.0).max(1.0);
-    ((width_pixels / keys_len) / 12.0).clamp(1.0 * scale, 5.0 * scale).round() * 2.0
+/// Render the static part of the keyboard (background + all keys in unpressed state)
+pub fn render_static_keyboard(
+    buffer: &mut [u8],
+    width: u32,
+    height: u32,
+    keyboard_height: u32,
+    key_view: &KeyboardView,
+    bar_color: [u8; 4], // BGRA
+) {
+    let rect_top = height - keyboard_height;
+    let rect_bottom = height;
+    let rect_height = keyboard_height as f32;
+    let rect_width = width as f32;
+    
+    let note_border = calculate_border_width(rect_width, key_view.visible_range.len() as f32);
+    let key_border = (note_border / 2.0).round();
+    
+    let md_height = rect_height * 0.048;
+    let bar = rect_height * 0.06;
+    
+    let black_key_overlap = bar / 2.35;
+    let top = rect_top as f32 + bar;
+    let bottom = rect_bottom as f32;
+    
+    // Helper to map x coordinate
+    let map_x = |num: f32| (num * rect_width) as i32;
+    
+    // Draw white keys (unpressed)
+    for (_, key) in key_view.iter_visible_keys() {
+        if !key.black {
+            draw_white_key_exact(
+                buffer, width, height,
+                &key, None, // Force unpressed
+                top, bottom, black_key_overlap, md_height, key_border,
+                &map_x,
+            );
+        }
+    }
+
+    // Draw black keys (unpressed) - NOW included in static buffer
+    let black_bottom = rect_bottom as f32 - rect_height * 0.34;
+    for (_, key) in key_view.iter_visible_keys() {
+        if key.black {
+             draw_black_key_exact(
+                buffer, width, height,
+                &key, None, // Unpressed color
+                top, black_bottom, black_key_overlap, md_height, key_border,
+                &map_x,
+                None, // No bar fix needed for unpressed keys
+            );
+        }
+    }
+    
+    // Draw coloured bar
+    draw_bar_exact(buffer, width, height, top, black_key_overlap, bar_color);
+    
+    // Draw progress bar (gray bar at very top)
+    draw_progress_bar(buffer, width, height, rect_top as f32, top - black_key_overlap);
 }
 
-/// Render keyboard to a pixel buffer (exact replica of the original)
-pub fn render_keyboard(
+pub fn render_pressed_keys(
     buffer: &mut [u8],
     width: u32,
     height: u32,
     keyboard_height: u32,
     key_view: &KeyboardView,
     key_colors: &[Option<MIDIColor>],
-    bar_color: [u8; 4], // BGRA
+    dirty_black_keys: &std::collections::HashSet<usize>,
+    bar_color: [u8; 4], // BGRA, needed to fix black key gap
 ) {
     let rect_top = height - keyboard_height;
     let rect_bottom = height;
@@ -41,36 +95,36 @@ pub fn render_keyboard(
     
     // Helper to map x coordinate
     let map_x = |num: f32| (num * rect_width) as i32;
-    
-    // Draw white keys first
+
+    // Draw PRESSED white keys only
     for (i, key) in key_view.iter_visible_keys() {
         if !key.black {
-            let color = key_colors.get(i).and_then(|c| *c);
-            draw_white_key_exact(
-                buffer, width, height,
-                &key, color,
-                top, bottom, black_key_overlap, md_height, key_border,
-                &map_x,
-            );
+            if let Some(color) = key_colors.get(i).and_then(|c| *c) {
+                draw_white_key_exact(
+                    buffer, width, height,
+                    &key, Some(color),
+                    top, bottom, black_key_overlap, md_height, key_border,
+                    &map_x,
+                );
+            }
         }
     }
-    
-    // Draw coloured bar
-    draw_bar_exact(buffer, width, height, top, black_key_overlap, bar_color);
-    
-    // Draw progress bar (gray bar at very top)
-    draw_progress_bar(buffer, width, height, rect_top as f32, top - black_key_overlap);
-    
-    // Draw black keys on top
+
+    // Draw DIRTY black keys (Pressed OR Neighbors of pressed white keys)
     for (i, key) in key_view.iter_visible_keys() {
         if key.black {
-            let color = key_colors.get(i).and_then(|c| *c);
-            draw_black_key_exact(
-                buffer, width, height,
-                &key, color,
-                top, black_bottom, black_key_overlap, md_height, key_border,
-                &map_x,
-            );
+             if dirty_black_keys.contains(&i) {
+                let color = key_colors.get(i).and_then(|c| *c);
+                let bar_fix = if color.is_some() { Some(bar_color) } else { None };
+                
+                draw_black_key_exact(
+                    buffer, width, height,
+                    &key, color,
+                    top, black_bottom, black_key_overlap, md_height, key_border,
+                    &map_x,
+                    bar_fix,
+                );
+             }
         }
     }
 }
@@ -161,6 +215,7 @@ fn draw_black_key_exact<F: Fn(f32) -> i32>(
     key: &KeyPosition, color: Option<MIDIColor>,
     top: f32, black_bottom: f32, black_key_overlap: f32, md_height: f32, key_border: f32,
     map_x: &F,
+    bar_color_fix: Option<[u8; 4]>,
 ) {
     let left = map_x(key.left);
     let right = map_x(key.right);
@@ -177,6 +232,38 @@ fn draw_black_key_exact<F: Fn(f32) -> i32>(
         
         let inner_top = (top - bk_overlap) as i32;
         let inner_bottom = (black_bottom - bk_md_height) as i32;
+
+        // FIX: Rewrite the gap above the pressed key with the bar gradient
+        if let Some(bar_c) = bar_color_fix {
+            let bar_top_f = top - black_key_overlap;
+            let gap_bottom_f = top - bk_overlap;
+            
+            let bar_top_i = bar_top_f as i32;
+            let gap_bottom_i = gap_bottom_f as i32;
+            
+            // Bar gradient logic from draw_bar_exact
+            let bar_rgb = (bar_c[2], bar_c[1], bar_c[0]);
+            let start_color = darken_color(bar_rgb, 0.3);
+            let end_color = bar_rgb; // Gradient goes from dark(top) to normal(bottom)
+            
+            // We need to interpolate end_color because we stop early at gap_bottom
+            let total_h = black_key_overlap;
+            let current_h = gap_bottom_f - bar_top_f;
+            let t = current_h / total_h;
+            
+            let gap_end_color = (
+                lerp_u8(start_color.0, end_color.0, t),
+                lerp_u8(start_color.1, end_color.1, t),
+                lerp_u8(start_color.2, end_color.2, t),
+            );
+            
+            draw_gradient_rect(
+                buffer, width, height, 
+                left, right, // Fill full width of key slot
+                bar_top_i, gap_bottom_i, 
+                start_color, gap_end_color
+            );
+        }
 
         let base = (c.red(), c.green(), c.blue());
         let darkened = darken_color(base, 0.76);
@@ -262,11 +349,11 @@ fn draw_slanted_vertical_gradient_strip(
     
     let total_w = (x_end - x_start) as f32;
     
-    for x in x_start..x_end {
-        if x < 0 || x >= width as i32 {
-            continue;
-        }
-        
+    // Clamp X range
+    let x_min = x_start.max(0);
+    let x_max = x_end.min(width as i32);
+
+    for x in x_min..x_max {
         // Calculate t for the left edge of the pixel column
         let t0 = (x - x_start) as f32 / total_w;
         // Calculate t for the right edge of the pixel column (for conservative coverage)
@@ -292,8 +379,28 @@ fn draw_slanted_vertical_gradient_strip(
         let g = lerp_u8(color_start.1, color_end.1, t_center);
         let b = lerp_u8(color_start.2, color_end.2, t_center);
         
-        for y in y_top.max(0)..y_bottom.min(height as i32) {
-             set_pixel(buffer, width, height, x, y, b, g, r, 255);
+        // Clamp Y range
+        let y_min = y_top.max(0);
+        let y_max = y_bottom.min(height as i32);
+
+        let color_packed = super::utils::pack_color((r, g, b), 255);
+
+        // Vertical fill optimization
+        unsafe {
+             let mut offset = ((y_min as u32 * width + x as u32) as usize) * 4;
+             let stride_bytes = (width as usize) * 4;
+             
+             for _ in y_min..y_max {
+                 // ptr_base is a byte pointer cast to u32 pointer?? NO.
+                 // ptr_base is u32 pointer. arithmetic is in u32 units.
+                 // offset is in BYTES.
+                 // We need distinct handling.
+                 
+                 // Let's keep it simple:
+                 let ptr = buffer.as_mut_ptr().add(offset) as *mut u32;
+                 *ptr = color_packed;
+                 offset += stride_bytes;
+             }
         }
     }
 }
@@ -307,8 +414,12 @@ fn draw_trapezoid_vertical_gradient(
     top_color: (u8, u8, u8), bottom_color: (u8, u8, u8),
 ) {
      let total_h = (bottom_y - top_y) as f32;
-     for y in top_y..bottom_y {
-         if y < 0 || y >= height as i32 { continue; }
+     
+     // Clamp Y range
+     let y_min = top_y.max(0);
+     let y_max = bottom_y.min(height as i32);
+
+     for y in y_min..y_max {
          let t = (y - top_y) as f32 / total_h;
          let color = (
              lerp_u8(top_color.0, bottom_color.0, t),
@@ -320,9 +431,14 @@ fn draw_trapezoid_vertical_gradient(
          let start_x = (top_left_x * (1.0 - t) + bottom_left_x * t).floor() as i32;
          let end_x = (top_right_x * (1.0 - t) + bottom_right_x * t).ceil() as i32;
          
-         for x in start_x..end_x {
-              if x < 0 || x >= width as i32 { continue; }
-              set_pixel(buffer, width, height, x, y, color.2, color.1, color.0, 255);
+         // Clamp X range
+         let x_min = start_x.max(0);
+         let x_max = end_x.min(width as i32);
+         
+         let color_packed = super::utils::pack_color(color, 255);
+
+         unsafe {
+             super::utils::fill_row_unchecked(buffer, width, x_min, x_max, y, color_packed);
          }
      }
 }

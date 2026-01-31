@@ -7,7 +7,7 @@
 use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{self, SyncSender};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::thread::{self, JoinHandle};
 
 /// Message types for the writer thread
@@ -29,8 +29,8 @@ impl HwEncoder {
     fn codec_name(&self) -> &'static str {
         match self {
             HwEncoder::NvencHevc => "hevc_nvenc",
-            HwEncoder::AmfHevc => "hevc_amf",
             HwEncoder::QsvHevc => "hevc_qsv",
+            HwEncoder::AmfHevc => "hevc_amf",
             HwEncoder::Software => "libx265",
         }
     }
@@ -42,24 +42,24 @@ impl HwEncoder {
                 "-preset", "p7",        // Slowest = best quality
                 "-tune", "hq",          // High quality tuning
                 "-rc", "vbr",           // Variable bitrate
-                "-cq", "26",            // Quality level (like CRF)
+                "-cq", "32",            // Quality level (like CRF)
                 "-b:v", "0",            // Let CQ control quality
             ],
             // AMF: Quality preset with CQP mode
             HwEncoder::AmfHevc => vec![
                 "-quality", "quality",  // Quality preset
                 "-rc", "cqp",           // Constant QP mode
-                "-qp_i", "26",
-                "-qp_p", "26",
+                "-qp_i", "32",
+                "-qp_p", "32",
             ],
             // QSV: Veryslow for best quality
             HwEncoder::QsvHevc => vec![
                 "-preset", "veryslow",
-                "-global_quality", "26",
+                "-global_quality", "32",
             ],
             // Software: Best quality settings
             HwEncoder::Software => vec![
-                "-crf", "24",
+                "-crf", "30",
                 "-preset", "medium",
             ],
         }
@@ -71,11 +71,12 @@ impl HwEncoder {
 /// Takes raw BGRA frame data and encodes it to H.265 video.
 /// Uses a background thread for writing to prevent blocking the render loop.
 /// Maximum number of frames to buffer before blocking
-/// At 120 FPS, this is about 1 second of video
-const MAX_FRAME_BUFFER: usize = 120;
+/// At 60 FPS, this is 1 second
+const MAX_FRAME_BUFFER: usize = 60;
 
 pub struct FFmpegEncoder {
     sender: Option<SyncSender<WriterMessage>>,
+    recycle_receiver: Receiver<Vec<u8>>,
     writer_thread: Option<JoinHandle<std::io::Result<()>>>,
     width: u32,
     height: u32,
@@ -85,8 +86,8 @@ pub struct FFmpegEncoder {
 fn detect_hw_encoder(ffmpeg_path: &Path) -> HwEncoder {
     let encoders_to_try = [
         HwEncoder::NvencHevc,
-        HwEncoder::AmfHevc,
         HwEncoder::QsvHevc,
+        HwEncoder::AmfHevc,
     ];
     
     for encoder in encoders_to_try {
@@ -112,12 +113,7 @@ fn test_encoder(ffmpeg_path: &Path, encoder: HwEncoder) -> bool {
        .arg("-");
     
     // Hide console window on Windows
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    configure_command(&mut cmd);
     
     cmd.stdout(Stdio::null())
        .stderr(Stdio::null())
@@ -173,35 +169,49 @@ impl FFmpegEncoder {
             .stderr(Stdio::piped());
         
         // Hide console window on Windows
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        configure_command(&mut cmd);
         
         let process = cmd.spawn()?;
 
         // Create bounded channel for async frame writing (limits memory usage)
         let (sender, receiver) = mpsc::sync_channel::<WriterMessage>(MAX_FRAME_BUFFER);
+        
+        // Create recycling channel
+        let (recycle_sender, recycle_receiver) = mpsc::channel();
 
         // Spawn writer thread
         let writer_thread = thread::spawn(move || {
-            writer_thread_fn(process, receiver)
+            writer_thread_fn(process, receiver, recycle_sender)
         });
 
         Ok(Self {
             sender: Some(sender),
+            recycle_receiver,
             writer_thread: Some(writer_thread),
             width,
             height,
         })
     }
 
+    /// Get a buffer from the pool or create a new one
+    pub fn get_buffer(&self) -> Vec<u8> {
+        // Try to get a recycled buffer
+        if let Ok(mut buffer) = self.recycle_receiver.try_recv() {
+            // Buffer is already allocated, just ensure it's empty but keeps capacity
+            buffer.clear();
+            buffer
+        } else {
+            // No recycled buffer available, create new one with correct capacity
+            let capacity = (self.width * self.height * 4) as usize;
+            Vec::with_capacity(capacity)
+        }
+    }
+
     /// Write a single frame of BGRA data (async - returns immediately)
     ///
     /// The frame data must be exactly width * height * 4 bytes.
-    pub fn write_frame(&mut self, frame_data: &[u8]) -> std::io::Result<()> {
+    /// Takes ownership of the buffer to send it to the writer thread.
+    pub fn write_frame(&mut self, frame_data: Vec<u8>) -> std::io::Result<()> {
         let expected_size = (self.width * self.height * 4) as usize;
         if frame_data.len() != expected_size {
             return Err(std::io::Error::new(
@@ -216,7 +226,7 @@ impl FFmpegEncoder {
 
         if let Some(ref sender) = self.sender {
             // Send frame to writer thread (non-blocking for the render loop)
-            sender.send(WriterMessage::Frame(frame_data.to_vec()))
+            sender.send(WriterMessage::Frame(frame_data))
                 .map_err(|_| std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
                     "Writer thread has stopped"
@@ -278,6 +288,7 @@ impl Drop for FFmpegEncoder {
 fn writer_thread_fn(
     mut process: Child,
     receiver: mpsc::Receiver<WriterMessage>,
+    recycle_sender: Sender<Vec<u8>>,
 ) -> std::io::Result<()> {
     let mut stdin = process.stdin.take();
     
@@ -289,6 +300,9 @@ fn writer_thread_fn(
                         eprintln!("[FFmpegEncoder] Write error: {}", e);
                         break;
                     }
+                    // Recycle buffer after writing
+                    // We ignore errors here (if the main thread dropped the receiver, we just drop the buffer)
+                    let _ = recycle_sender.send(data);
                 }
             }
             Ok(WriterMessage::Finish) => {
@@ -318,4 +332,14 @@ fn writer_thread_fn(
     }
     
     Ok(())
+}
+
+/// Helper to configure command for Windows (hide window)
+fn configure_command(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
 }
