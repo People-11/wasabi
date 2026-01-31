@@ -28,17 +28,31 @@ pub fn lighten_color(c: (u8, u8, u8), factor: f32) -> (u8, u8, u8) {
     )
 }
 
-/// Set pixel with bounds checking (BGRA format)
+/// Pack RGBA components into a single u32 (Little Endian: BGRA handling)
+/// Note: Input color is (R, G, B). Alpha is separate.
+/// Output format: 0xAARRGGBB (matches B8G8R8A8_UNORM)
+#[inline(always)]
+pub fn pack_color(c: (u8, u8, u8), a: u8) -> u32 {
+    ((a as u32) << 24) | ((c.0 as u32) << 16) | ((c.1 as u32) << 8) | (c.2 as u32)
+}
+
+/// Fill a row with a packed color u32 (Unsafe, no bounds check)
+/// Much faster than setting bytes individually.
 #[inline]
-pub fn set_pixel(buffer: &mut [u8], width: u32, height: u32, x: i32, y: i32, b: u8, g: u8, r: u8, a: u8) {
-    if x >= 0 && x < width as i32 && y >= 0 && y < height as i32 {
-        let idx = ((y as u32 * width + x as u32) * 4) as usize;
-        if idx + 3 < buffer.len() {
-            buffer[idx] = b;
-            buffer[idx + 1] = g;
-            buffer[idx + 2] = r;
-            buffer[idx + 3] = a;
-        }
+pub unsafe fn fill_row_unchecked(buffer: &mut [u8], width: u32, x_start: i32, x_end: i32, y: i32, color_packed: u32) {
+    if x_start >= x_end { return; }
+    // Calculate byte offset. 4 bytes per pixel.
+    let offset = ((y as u32 * width + x_start as u32) as usize) * 4;
+    let count = (x_end - x_start) as usize;
+    
+    // Safety: Caller ensures buffer bounds. 
+    // Pointer cast to *mut u32 is generally safe for Vec<u8> buffer due to alignment,
+    // and x/y/width being integers means offset is multiple of 4.
+    let ptr = buffer.as_mut_ptr().add(offset) as *mut u32;
+    
+    // Simple loop is usually auto-vectorized by LLVM (memset/stosd equivalent)
+    for i in 0..count {
+        *ptr.add(i) = color_packed;
     }
 }
 
@@ -124,7 +138,6 @@ pub fn draw_gradient_rect(
     }
     
     let rect_height = (bottom - top) as f32;
-    let stride = width as usize * 4;
     
     for y in y_start..y_end {
         let t = (y - top) as f32 / rect_height;
@@ -132,13 +145,19 @@ pub fn draw_gradient_rect(
         let g = lerp_u8(top_color.1, bottom_color.1, t);
         let b = lerp_u8(top_color.2, bottom_color.2, t);
         
-        let row_offset = y as usize * stride;
-        for x in x_start..x_end {
-            let idx = row_offset + x * 4;
-            buffer[idx] = b;
-            buffer[idx + 1] = g;
-            buffer[idx + 2] = r;
-            buffer[idx + 3] = 255;
+        // Check if we can use fast path? 
+        // Gradient rect changes color per row, but CONSTANT per row.
+        // So we can use fill_row_unchecked!
+        let color_packed = pack_color((r, g, b), 255);
+        
+        unsafe {
+             fill_row_unchecked(buffer, width, x_start as i32, x_end as i32, y, color_packed);
         }
     }
+}
+
+/// Calculate border width for keyboard keys
+pub fn calculate_border_width(width_pixels: f32, keys_len: f32) -> f32 {
+    let scale = (width_pixels / 1280.0).max(1.0);
+    ((width_pixels / keys_len) / 12.0).clamp(1.0 * scale, 5.0 * scale).round() * 2.0
 }

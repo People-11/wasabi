@@ -4,7 +4,7 @@
 //! allowing MIDI visualization to be rendered directly to buffers for video encoding.
 
 use std::sync::Arc;
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashSet};
 use crate::gui::window::stats::GuiMidiStats;
 
 use vulkano::{
@@ -52,6 +52,9 @@ pub struct OffscreenRenderer {
     
     // NPS calculation history
     nps_history: VecDeque<(f64, u64)>,
+    // Keyboard Cache
+    static_keyboard_buffer: Vec<u8>,
+    last_cache_params: Option<(usize, usize, u32, u32, [u8; 4])>, // start_key, end_key, width, height, bar_color
 }
 
 impl OffscreenRenderer {
@@ -179,30 +182,73 @@ impl OffscreenRenderer {
             width,
             height,
             nps_history: VecDeque::new(),
+            static_keyboard_buffer: Vec::new(),
+            last_cache_params: None,
         })
     }
 
 
-    /// Render a frame and return the pixel data (BGRA format)
-    pub fn render_frame(
+    /// Render a frame into the provided buffer (BGRA format)
+    /// The buffer is cleared and filled with new frame data
+    pub fn render_frame_into(
         &mut self,
+        target_buffer: &mut Vec<u8>,
         midi_file: &mut impl MIDIFile,
         view_range: f64,
         settings: &WasabiSettings,
         current_time: f64,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<(), String> {
         // Get keyboard view directly to avoid borrow conflict
         let first_key = *settings.scene.key_range.start() as usize;
         let last_key = *settings.scene.key_range.end() as usize;
         let key_view = self.keyboard_layout.get_view_for_keys(first_key, last_key);
 
-        // Calculate keyboard height (must match what we use for rendering keyboard later)
+        // Get bar color from settings
+        let bar = settings.scene.bar_color;
+        let bar_color = [bar.b(), bar.g(), bar.r(), bar.a()]; // BGRA
+
+        // Update Static Keyboard Cache if needed
+        let cache_key = (first_key, last_key, self.width, self.height, bar_color);
+        let cache_valid = self.last_cache_params.map_or(false, |p| p == cache_key);
+        
+        // Calculate keyboard height
         let keyboard_height = (11.6 / key_view.visible_range.len() as f32 * self.width as f32)
             .min(self.height as f32 / 2.0);
+
+        // Calculate buffer size for keyboard area only
+        let keyboard_buffer_size = (self.width * (keyboard_height as u32) * 4) as usize;
+
+        if !cache_valid {
+            // Resize buffer to fit ONLY the keyboard area
+            if self.static_keyboard_buffer.len() != keyboard_buffer_size {
+                self.static_keyboard_buffer.resize(keyboard_buffer_size, 0);
+            } else {
+                // If capacity matches, we still need to clear it because we rely on transparency?
+                // Or opaque overwrite? 
+                // render_static_keyboard overwrites its area. 
+                // But let's be safe and fast-clear (std::intrinsics::write_bytes)
+                 self.static_keyboard_buffer.fill(0);
+            }
+            
+            // Render static keyboard to cache.
+            // We treat the buffer as if it has height = keyboard_height.
+            // This aligns the drawing to the top of our cache buffer (which corresponds to rect_top in full frame)
+            super::keyboard_renderer::render_static_keyboard(
+                &mut self.static_keyboard_buffer,
+                self.width,
+                keyboard_height as u32, // Treat height as just the keyboard height
+                keyboard_height as u32, 
+                &key_view,
+                bar_color
+            );
+            
+            self.last_cache_params = Some(cache_key);
+            println!("[OffscreenRenderer] Updated keyboard cache (Range: {}-{})", first_key, last_key);
+        }
+
         let notes_height = self.height as f32 - keyboard_height;
         
         // Adjust view_range to account for keyboard taking up part of the screen
-        // The notes area is only notes_height / height of the full frame
         let adjusted_view_range = view_range * (notes_height as f64 / self.height as f64);
 
         // Get background color from settings
@@ -267,21 +313,56 @@ impl OffscreenRenderer {
             .read()
             .map_err(|e| format!("Failed to read staging buffer: {}", e))?;
 
-        let mut frame = buffer_content.to_vec();
+        // Copy content to target buffer
+        target_buffer.clear();
+        target_buffer.extend_from_slice(&buffer_content);
 
-        // Get bar color from settings
-        let bar = settings.scene.bar_color;
-        let bar_color = [bar.b(), bar.g(), bar.r(), bar.a()]; // BGRA
+        // Blit static keyboard from cache
+        // The cache now ONLY contains the keyboard area.
+        let start_y = (self.height as f32 - keyboard_height) as u32;
+        let start_idx = (start_y * self.width * 4) as usize;
+        
+        if start_idx < target_buffer.len() {
+             let target_slice = &mut target_buffer[start_idx..];
+             let source_slice = &self.static_keyboard_buffer;
+             // Ensure we don't overflow (shouldn't handle resizing race conditions, but safety first)
+             let len = target_slice.len().min(source_slice.len());
+             target_slice[..len].copy_from_slice(&source_slice[..len]);
+        }
 
-        // Render keyboard on top of the notes (software rendering)
-        super::keyboard_renderer::render_keyboard(
-            &mut frame,
+        // Calculate dirty black keys (Optimization)
+        // We only redraw black keys if they are pressed OR if a neighbor white key is pressed
+        let mut dirty_keys = HashSet::new();
+
+        // Helper to check if a key is black (Standard 12-tone cycle)
+        let is_black = |i: usize| match i % 12 {
+            1 | 3 | 6 | 8 | 10 => true,
+            _ => false,
+        };
+
+        for (i, color) in result.key_colors.iter().enumerate() {
+            if color.is_some() {
+                if is_black(i) {
+                     dirty_keys.insert(i);
+                } else {
+                     // White key pressed: mark neighbors if they are black
+                     if i > 0 && is_black(i - 1) { dirty_keys.insert(i - 1); }
+                     // Note: keys_len is usually 128, but strictly we check i < 127
+                     if i < 127 && is_black(i + 1) { dirty_keys.insert(i + 1); }
+                }
+            }
+        }
+
+        // Render pressed keys on top
+        super::keyboard_renderer::render_pressed_keys(
+            target_buffer,
             self.width,
             self.height,
             keyboard_height as u32,
             &key_view,
             &result.key_colors,
-            bar_color,
+            &dirty_keys,
+            bar_color, // Pass bar color for black key gap fixing
         );
         
         // Calculate NPS using history
@@ -291,12 +372,8 @@ impl OffscreenRenderer {
         self.nps_history.push_back((current_time, total_passed));
         
         // Remove old entries (> 1.0s ago)
-        while let Some(&(t, _)) = self.nps_history.front() {
-            if current_time - t > 1.0 {
-                self.nps_history.pop_front();
-            } else {
-                break;
-            }
+        while self.nps_history.front().map_or(false, |&(t, _)| current_time - t > 1.0) {
+            self.nps_history.pop_front();
         }
         
         let nps = if let (Some(&(start_t, start_n)), Some(&(end_t, end_n))) = (self.nps_history.front(), self.nps_history.back()) {
@@ -317,7 +394,7 @@ impl OffscreenRenderer {
 
         // Render overlay
         super::overlay_renderer::draw_overlay(
-            &mut frame,
+            target_buffer,
             self.width, 
             self.height,
             midi_file,
@@ -327,7 +404,7 @@ impl OffscreenRenderer {
             settings
         );
 
-        Ok(frame)
+        Ok(())
     }
 
 }

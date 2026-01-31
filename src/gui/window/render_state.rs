@@ -59,6 +59,7 @@ pub struct RenderProgress {
     pub is_cancelled: Arc<AtomicBool>,
     pub is_complete: Arc<AtomicBool>,
     pub is_parsing: Arc<AtomicBool>,
+    pub fps_history: Arc<std::sync::Mutex<std::collections::VecDeque<(std::time::Instant, u64)>>>,
 }
 
 impl Default for RenderProgress {
@@ -69,6 +70,7 @@ impl Default for RenderProgress {
             is_cancelled: Arc::new(AtomicBool::new(false)),
             is_complete: Arc::new(AtomicBool::new(false)),
             is_parsing: Arc::new(AtomicBool::new(true)),
+            fps_history: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
         }
     }
 }
@@ -94,6 +96,39 @@ impl RenderProgress {
         self.is_cancelled.store(false, Ordering::Relaxed);
         self.is_complete.store(false, Ordering::Relaxed);
         self.is_parsing.store(true, Ordering::Relaxed);
+        self.fps_history.lock().unwrap().clear();
+    }
+
+    /// Calculate sliding window FPS and ETA
+    pub fn get_performance_stats(&self) -> Option<(f64, u64)> {
+        let current = self.current_frame.load(Ordering::Relaxed);
+        let total = self.total_frames.load(Ordering::Relaxed);
+        if current == 0 { return None; }
+
+        let mut history = self.fps_history.lock().ok()?;
+        let now = std::time::Instant::now();
+        
+        // Push current sample
+        history.push_back((now, current));
+
+        // Keep last 1.5s for a smooth window
+        while history.len() > 2 && now.duration_since(history.front()?.0).as_secs_f64() > 1.5 {
+            history.pop_front();
+        }
+
+        if history.len() < 2 { return None; }
+
+        let (start_time, start_frame) = history.front()?;
+        let (end_time, end_frame) = history.back()?;
+        
+        let dt = end_time.duration_since(*start_time).as_secs_f64();
+        if dt < 0.1 { return None; }
+
+        let fps = (end_frame - start_frame) as f64 / dt;
+        let remaining = total.saturating_sub(current);
+        let eta = if fps > 0.1 { (remaining as f64 / fps) as u64 } else { 0 };
+
+        Some((fps, eta))
     }
 }
 

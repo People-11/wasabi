@@ -262,6 +262,7 @@ impl GuiWasabiWindow {
                         is_cancelled: Arc::clone(&state.render_state.progress.is_cancelled),
                         is_complete: Arc::clone(&state.render_state.progress.is_complete),
                         is_parsing: Arc::clone(&state.render_state.progress.is_parsing),
+                        fps_history: Arc::clone(&state.render_state.progress.fps_history),
                     };
                     
                     start_render(config, progress);
@@ -284,12 +285,9 @@ impl GuiWasabiWindow {
             
             let progress = state.render_state.progress.progress();
             
-            // Custom styling for the progress bar
-            let mut visuals = ui.visuals().clone();
-            visuals.selection.bg_fill = egui::Color32::from_rgb(0x66, 0x99, 0x00);
-            
             ui.scope(|ui| {
-                ui.ctx().set_visuals(visuals);
+                // Apply custom color ONLY to this scope
+                ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(0x66, 0x99, 0x00);
                 let bar = ProgressBar::new(progress)
                     .desired_height(14.0) 
                     .animate(false)
@@ -302,7 +300,11 @@ impl GuiWasabiWindow {
             
             let current = state.render_state.progress.current_frame.load(std::sync::atomic::Ordering::Relaxed);
             let total = state.render_state.progress.total_frames.load(std::sync::atomic::Ordering::Relaxed);
-            ui.monospace(format!("Frame: {} / {}", current, total));
+            let mut info_text = format!("Frame: {} / {}", current, total);
+            if let Some((fps, eta)) = state.render_state.progress.get_performance_stats() {
+                 info_text.push_str(&format!(" | {:.1} FPS | ETA: {:02}:{:02}", fps, eta / 60, eta % 60));
+            }
+            ui.monospace(info_text);
             
             // Consistent Spacing 3
             ui.add_space(15.0);

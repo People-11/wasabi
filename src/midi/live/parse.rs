@@ -78,7 +78,7 @@ impl LiveMidiParser {
                     parse_time.store(time, Ordering::Relaxed);
                 }
 
-                let playback_time = (time - 10.0).max(0.0); // 10 seconds offset
+                let playback_time = time - 10.0; // 10 seconds offset
                 let waited = parser_timer.wait_until(Duration::seconds_f64(playback_time));
                 if let WaitResult::Killed = waited {
                     break;

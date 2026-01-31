@@ -20,12 +20,7 @@ pub fn convert_seconds_to_time_string(sec: f64) -> String {
     let time_min = sec as i64 / 60;
 
     format!(
-        "{}{:0width$}:{:0width$}.{}",
-        if time_sec + time_millis < 0 {
-            '-'
-        } else {
-            '\0'
-        },
+        "{:0width$}:{:0width$}.{}",
         time_min.abs(),
         time_sec.abs(),
         time_millis.abs(),

@@ -68,7 +68,7 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
     progress.is_parsing.store(false, Ordering::Relaxed);
 
     // Calculate total frames
-    let total_time = midi_length + config.start_delay;
+    let total_time = midi_length + config.start_delay + 2.0;
     let total_frames = (total_time * fps as f64).ceil() as u64;
     progress.total_frames.store(total_frames, Ordering::Relaxed);
     println!("[RenderLoop] Total frames to render: {}", total_frames);
@@ -92,7 +92,7 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
     let mut current_time = -config.start_delay;
     let mut frame_num = 0u64;
 
-    while current_time < midi_length {
+    while current_time < midi_length + 2.0 {
         // Check for cancellation
         if progress.is_cancelled.load(Ordering::Relaxed) {
             encoder.cancel().ok();
@@ -102,13 +102,16 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
         // Seek to current time
         midi_file.timer_mut().seek(Duration::seconds_f64(current_time));
 
-        // Render frame
-        let frame_buffer = renderer.render_frame(&mut midi_file, view_range, &config.settings, current_time)
+        // Get a recycled buffer (or create new one) from the encoder
+        let mut frame_buffer = encoder.get_buffer();
+
+        // Render frame into the buffer
+        renderer.render_frame_into(&mut frame_buffer, &mut midi_file, view_range, &config.settings, current_time)
             .map_err(|e| format!("Failed to render frame {}: {}", frame_num, e))?;
 
-        // Write frame to FFmpeg
+        // Write frame to FFmpeg (passes ownership of buffer)
         encoder
-            .write_frame(&frame_buffer)
+            .write_frame(frame_buffer)
             .map_err(|e| format!("Failed to write frame: {}", e))?;
 
         // Update progress
