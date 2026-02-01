@@ -65,7 +65,7 @@ impl GuiWasabiWindow {
                 
                 if is_rendering {
                      ui.add_space(15.0);
-                     self.render_progress_ui(ui, state);
+                     self.render_progress_ui(ui, settings, state);
                 } else {
                      ui.add_space(15.0);
                      self.render_actions_ui(ui, settings, state);
@@ -230,7 +230,7 @@ impl GuiWasabiWindow {
         ui.label(egui::RichText::new("Note: Other settings (colors, speed, range) use current app configuration.").weak().small());
     }
 
-    fn render_actions_ui(&mut self, ui: &mut egui::Ui, settings: &WasabiSettings, state: &mut WasabiState) {
+    fn render_actions_ui(&mut self, ui: &mut egui::Ui, settings: &mut WasabiSettings, state: &mut WasabiState) {
         ui.horizontal(|ui| {
             let can_start = state.render_state.midi_path.is_some()
                 && state.render_state.ffmpeg_path.is_some()
@@ -255,6 +255,13 @@ impl GuiWasabiWindow {
                     
                     state.render_state.progress.reset();
                     state.render_state.is_rendering = true;
+                    // Temporarily disable VSYNC for performance
+                    if state.render_state.original_vsync.is_none() {
+                        state.render_state.original_vsync = Some(settings.gui.vsync);
+                    }
+                    if settings.gui.vsync {
+                        settings.gui.vsync = false;
+                    }
 
                     let progress = super::render_state::RenderProgress {
                         current_frame: Arc::clone(&state.render_state.progress.current_frame),
@@ -271,7 +278,7 @@ impl GuiWasabiWindow {
         });
     }
 
-    fn render_progress_ui(&mut self, ui: &mut egui::Ui, state: &mut WasabiState) {
+    fn render_progress_ui(&mut self, ui: &mut egui::Ui, settings: &mut WasabiSettings, state: &mut WasabiState) {
         ui.vertical_centered(|ui| {
             // Heading
             if state.render_state.progress.is_parsing.load(std::sync::atomic::Ordering::Relaxed) {
@@ -311,11 +318,19 @@ impl GuiWasabiWindow {
             
             if state.render_state.progress.is_complete.load(std::sync::atomic::Ordering::Relaxed) {
                 state.render_state.is_rendering = false;
+                // Restore VSYNC
+                if let Some(original) = state.render_state.original_vsync.take() {
+                    settings.gui.vsync = original;
+                }
             }
 
             if ui.button("Cancel Render").clicked() {
                  state.render_state.progress.is_cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
                  state.render_state.is_rendering = false;
+                 // Restore VSYNC
+                 if let Some(original) = state.render_state.original_vsync.take() {
+                     settings.gui.vsync = original;
+                 }
             }
         });
     }
