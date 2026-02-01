@@ -65,30 +65,30 @@ impl HwEncoder {
                 "-preset", "p7",        // Slowest = best quality
                 "-tune", "hq",          // High quality tuning
                 "-rc", "vbr",           // Variable bitrate
-                "-cq", "25",            // Quality level (like CRF)
+                "-cq", "22",            // Quality level (like CRF)
                 "-b:v", "0",            // Let CQ control quality
             ],
             // vaaaapi
             HwEncoder::VaapiHevc => vec![
                 "-rc_mode", "CQP",
-                "-qp", "25",
+                "-qp", "22",
                 // "-compression_level", "1", Because 1 represents prioritizing speed over quality, the CQP mode embodies the “quality-first” logic for this hardware.
             ],
             // AMF: Quality preset with CQP mode
             HwEncoder::AmfHevc => vec![
                 "-quality", "quality",
                 "-rc", "cqp",
-                "-qp_i", "25",
-                "-qp_p", "25",
+                "-qp_i", "22",
+                "-qp_p", "22",
             ],
             // QSV: Veryslow for best quality
             HwEncoder::QsvHevc => vec![
                 "-preset", "veryslow",
-                "-global_quality", "25",
+                "-global_quality", "22",
             ],
             // Software: Best quality settings
             HwEncoder::Software => vec![
-                "-crf", "25",
+                "-crf", "22",
                 "-preset", "medium",
             ],
         }
