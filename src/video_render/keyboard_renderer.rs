@@ -389,8 +389,6 @@ fn draw_slanted_vertical_gradient_strip(
         unsafe {
              let mut offset = ((y_min as u32 * width + x as u32) as usize) * 4;
              let stride_bytes = (width as usize) * 4;
-             let mut offset = ((y_min as u32 * width + x as u32) as usize) * 4;
-             let stride_bytes = (width as usize) * 4;
              
              for _ in y_min..y_max {
                  // ptr_base is a byte pointer cast to u32 pointer?? NO.

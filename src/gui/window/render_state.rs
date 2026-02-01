@@ -141,6 +141,7 @@ pub struct RenderState {
     pub resolution: RenderResolution,
     pub frame_rate: RenderFrameRate,
     pub is_rendering: bool,
+    pub original_vsync: Option<bool>,
     pub progress: RenderProgress,
 }
 

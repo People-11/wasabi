@@ -79,6 +79,11 @@ impl ApplicationHandler for WasabiApplication {
             // First process the redraw request
             if matches!(event, WindowEvent::RedrawRequested) {
                 renderer.render(&mut self.settings, &mut self.state);
+                // Update VSYNC if changed during render
+                if self.settings.gui.vsync != self.current_vsync {
+                    renderer.set_vsync(self.settings.gui.vsync);
+                    self.current_vsync = self.settings.gui.vsync;
+                }
                 return;
             }
 
