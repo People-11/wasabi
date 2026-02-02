@@ -255,7 +255,8 @@ impl Renderer {
         // Start a new frame (returns None if window size is zero, e.g., minimized)
         let Some((frame, acquire_future)) = self.swap_chain.acquire_frame() else {
             // Restore previous_frame_end since we're not rendering this frame
-            self.swap_chain.restore_previous_frame_end(previous_frame_future);
+            self.swap_chain
+                .restore_previous_frame_end(previous_frame_future);
             return;
         };
 

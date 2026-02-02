@@ -24,8 +24,6 @@ pub struct PieNoteData {
     pub color: MIDIColor,
 }
 
-
-
 impl FlatPieBlocks {
     /// Build flattened blocks from individual tree vectors
     pub fn build_blocks(trees: Vec<Vec<i32>>, start_time: u32, end_time: u32) -> Self {
@@ -87,7 +85,7 @@ impl FlatPieBlocks {
 
         loop {
             let cutoff = tree[next_index];
-            
+
             let offset = if time < cutoff {
                 tree[next_index + 1]
             } else {
@@ -100,7 +98,7 @@ impl FlatPieBlocks {
                 let leaf_index = next_index - offset as usize;
                 return Some((leaf_index, notes_passed));
             }
-            
+
             let offset = -offset;
             next_index -= offset as usize;
         }
@@ -132,7 +130,8 @@ impl FlatPieBlocks {
 
     /// Get the number of notes that have passed at a specific time for a specific key
     pub fn get_notes_passed_at(&self, key: usize, time: i32) -> u32 {
-        self.traverse(key, time).map(|(_, count)| count).unwrap_or(0)
+        self.traverse(key, time)
+            .map(|(_, count)| count)
+            .unwrap_or(0)
     }
 }
-

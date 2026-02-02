@@ -2,9 +2,9 @@
 //!
 //! Uses rusttype to render TTF fonts to a pixel buffer.
 
-use rusttype::{Font, Scale, Point};
-use std::sync::OnceLock;
 use super::utils::lerp_u8;
+use rusttype::{Font, Point, Scale};
+use std::sync::OnceLock;
 
 static FONT: OnceLock<Font<'static>> = OnceLock::new();
 
@@ -20,12 +20,15 @@ pub fn measure_text_width_ttf(text: &str, size: f32) -> i32 {
     let font = get_font();
     let scale = Scale::uniform(size);
     let v_metrics = font.v_metrics(scale);
-    let offset = Point { x: 0.0, y: v_metrics.ascent };
-    
+    let offset = Point {
+        x: 0.0,
+        y: v_metrics.ascent,
+    };
+
     // Optimization: Don't collect into Vec, just get the last glyph directly
     if let Some(last) = font.layout(text, scale, offset).last() {
         if let Some(bb) = last.pixel_bounding_box() {
-             return bb.max.x;
+            return bb.max.x;
         }
     }
     0
@@ -45,16 +48,19 @@ pub fn draw_text_ttf(
     let font = get_font();
     let scale = Scale::uniform(size);
     let v_metrics = font.v_metrics(scale);
-    let offset = Point { x: x as f32, y: y as f32 + v_metrics.ascent };
-    
+    let offset = Point {
+        x: x as f32,
+        y: y as f32 + v_metrics.ascent,
+    };
+
     let glyphs: Vec<_> = font.layout(text, scale, offset).collect();
-    
+
     for glyph in glyphs {
         if let Some(bounding_box) = glyph.pixel_bounding_box() {
             glyph.draw(|gx, gy, v| {
                 let px = bounding_box.min.x + gx as i32;
                 let py = bounding_box.min.y + gy as i32;
-                
+
                 if px >= 0 && px < width as i32 && py >= 0 && py < height as i32 {
                     let idx = ((py as u32 * width + px as u32) * 4) as usize;
                     if idx + 3 < buffer.len() {
@@ -62,8 +68,8 @@ pub fn draw_text_ttf(
                         if alpha > 0 {
                             let a = alpha as f32 / 255.0;
                             buffer[idx] = lerp_u8(buffer[idx], color[0], a);
-                            buffer[idx+1] = lerp_u8(buffer[idx+1], color[1], a);
-                            buffer[idx+2] = lerp_u8(buffer[idx+2], color[2], a);
+                            buffer[idx + 1] = lerp_u8(buffer[idx + 1], color[1], a);
+                            buffer[idx + 2] = lerp_u8(buffer[idx + 2], color[2], a);
                         }
                     }
                 }

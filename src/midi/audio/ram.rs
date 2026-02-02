@@ -129,8 +129,7 @@ impl InRamAudioPlayer {
         // Reset and push all control events before
         self.player.reset();
         for i in 0..(self.index) {
-            self.player
-                .push_events(self.events.iter_control_events(i));
+            self.player.push_events(self.events.iter_control_events(i));
         }
     }
 }

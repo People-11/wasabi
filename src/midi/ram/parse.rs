@@ -166,7 +166,8 @@ impl InRamMIDIFile {
         });
 
         let audio_join_handle = thread::spawn(move || {
-            let raw_blocks: Vec<_> = RawAudioBlock::build_raw_blocks(audio_rcv.into_iter()).collect();
+            let raw_blocks: Vec<_> =
+                RawAudioBlock::build_raw_blocks(audio_rcv.into_iter()).collect();
             FlatAudio::build_blocks(raw_blocks.into_iter())
         });
         let mut length = 0.0;

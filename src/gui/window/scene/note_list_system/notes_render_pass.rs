@@ -297,11 +297,7 @@ impl NoteRenderPass {
     }
 
     /// Create a NoteRenderPass for offscreen rendering (without egui dependency)
-    pub fn new_offscreen(
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        format: Format,
-    ) -> NoteRenderPass {
+    pub fn new_offscreen(device: Arc<Device>, queue: Arc<Queue>, format: Format) -> NoteRenderPass {
         let allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
         let gfx_queue = queue;
@@ -442,8 +438,7 @@ impl NoteRenderPass {
         create_info.subpass = Some(PipelineSubpassType::BeginRenderPass(
             Subpass::from(render_pass_draw_over.clone(), 0).unwrap(),
         ));
-        let pipeline_draw_over =
-            GraphicsPipeline::new(device.clone(), None, create_info).unwrap();
+        let pipeline_draw_over = GraphicsPipeline::new(device.clone(), None, create_info).unwrap();
 
         NoteRenderPass {
             gfx_queue,
@@ -598,10 +593,7 @@ impl NoteRenderPass {
                 command_buffer_builder
                     .bind_pipeline_graphics(pipeline.clone())
                     .unwrap()
-                    .set_viewport(
-                        0,
-                        vec![viewport].into(),
-                    )
+                    .set_viewport(0, vec![viewport].into())
                     .unwrap()
                     .push_constants(pipeline_layout.clone().clone(), 0, push_constants)
                     .unwrap()

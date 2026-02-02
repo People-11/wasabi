@@ -18,7 +18,10 @@ use crate::{
         audio::ram::InRamAudioPlayer,
         cake::tree_threader::{NoteEvent, ThreadedTreeSerializers},
         open_file_and_signature,
-        shared::{audio::{FlatAudio, RawAudioBlock}, timer::TimeKeeper},
+        shared::{
+            audio::{FlatAudio, RawAudioBlock},
+            timer::TimeKeeper,
+        },
         MIDIColor,
     },
     settings::MidiSettings,

@@ -3,9 +3,9 @@
 //! This module provides GPU rendering capabilities without a window,
 //! allowing MIDI visualization to be rendered directly to buffers for video encoding.
 
-use std::sync::Arc;
-use std::collections::{VecDeque, HashSet};
 use crate::gui::window::stats::GuiMidiStats;
+use std::collections::{HashSet, VecDeque};
+use std::sync::Arc;
 
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
@@ -35,21 +35,21 @@ pub struct OffscreenRenderer {
     device: Arc<Device>,
     queue: Arc<Queue>,
     cb_allocator: Arc<StandardCommandBufferAllocator>,
-    
+
     // Render target
     render_image: Arc<ImageView>,
     staging_buffer: Subbuffer<[u8]>,
-    
+
     // Note renderer
     note_renderer: NoteRenderer,
-    
+
     // Keyboard layout
     keyboard_layout: KeyboardLayout,
-    
+
     // Dimensions
     width: u32,
     height: u32,
-    
+
     // NPS calculation history
     nps_history: VecDeque<(f64, u64)>,
     // Keyboard Cache
@@ -61,8 +61,8 @@ impl OffscreenRenderer {
     /// Create a new offscreen renderer with the specified dimensions
     pub fn new(width: u32, height: u32) -> Result<Self, String> {
         // Initialize Vulkan without a window
-        let library = VulkanLibrary::new()
-            .map_err(|e| format!("Failed to load Vulkan library: {}", e))?;
+        let library =
+            VulkanLibrary::new().map_err(|e| format!("Failed to load Vulkan library: {}", e))?;
 
         let instance = Instance::new(
             library,
@@ -162,11 +162,7 @@ impl OffscreenRenderer {
         .map_err(|e| format!("Failed to create staging buffer: {}", e))?;
 
         // Create NoteRenderer using the new offscreen constructor
-        let note_renderer = NoteRenderer::new_offscreen(
-            device.clone(),
-            queue.clone(),
-            format,
-        );
+        let note_renderer = NoteRenderer::new_offscreen(device.clone(), queue.clone(), format);
 
         // Create keyboard layout
         let keyboard_layout = KeyboardLayout::new(&KeyboardParams::default());
@@ -186,7 +182,6 @@ impl OffscreenRenderer {
             last_cache_params: None,
         })
     }
-
 
     /// Render a frame into the provided buffer (BGRA format)
     /// The buffer is cleared and filled with new frame data
@@ -210,7 +205,7 @@ impl OffscreenRenderer {
         // Update Static Keyboard Cache if needed
         let cache_key = (first_key, last_key, self.width, self.height, bar_color);
         let cache_valid = self.last_cache_params.map_or(false, |p| p == cache_key);
-        
+
         // Calculate keyboard height
         let keyboard_height = (11.6 / key_view.visible_range.len() as f32 * self.width as f32)
             .min(self.height as f32 / 2.0);
@@ -224,12 +219,12 @@ impl OffscreenRenderer {
                 self.static_keyboard_buffer.resize(keyboard_buffer_size, 0);
             } else {
                 // If capacity matches, we still need to clear it because we rely on transparency?
-                // Or opaque overwrite? 
-                // render_static_keyboard overwrites its area. 
+                // Or opaque overwrite?
+                // render_static_keyboard overwrites its area.
                 // But let's be safe and fast-clear (std::intrinsics::write_bytes)
-                 self.static_keyboard_buffer.fill(0);
+                self.static_keyboard_buffer.fill(0);
             }
-            
+
             // Render static keyboard to cache.
             // We treat the buffer as if it has height = keyboard_height.
             // This aligns the drawing to the top of our cache buffer (which corresponds to rect_top in full frame)
@@ -237,17 +232,20 @@ impl OffscreenRenderer {
                 &mut self.static_keyboard_buffer,
                 self.width,
                 keyboard_height as u32, // Treat height as just the keyboard height
-                keyboard_height as u32, 
+                keyboard_height as u32,
                 &key_view,
-                bar_color
+                bar_color,
             );
-            
+
             self.last_cache_params = Some(cache_key);
-            println!("[OffscreenRenderer] Updated keyboard cache (Range: {}-{})", first_key, last_key);
+            println!(
+                "[OffscreenRenderer] Updated keyboard cache (Range: {}-{})",
+                first_key, last_key
+            );
         }
 
         let notes_height = self.height as f32 - keyboard_height;
-        
+
         // Adjust view_range to account for keyboard taking up part of the screen
         let adjusted_view_range = view_range * (notes_height as f64 / self.height as f64);
 
@@ -269,9 +267,9 @@ impl OffscreenRenderer {
 
         // Render notes to the image
         let result = self.note_renderer.draw(
-            &key_view, 
-            self.render_image.clone(), 
-            midi_file, 
+            &key_view,
+            self.render_image.clone(),
+            midi_file,
             adjusted_view_range,
             bg_color,
             Some(viewport),
@@ -321,13 +319,13 @@ impl OffscreenRenderer {
         // The cache now ONLY contains the keyboard area.
         let start_y = (self.height as f32 - keyboard_height) as u32;
         let start_idx = (start_y * self.width * 4) as usize;
-        
+
         if start_idx < target_buffer.len() {
-             let target_slice = &mut target_buffer[start_idx..];
-             let source_slice = &self.static_keyboard_buffer;
-             // Ensure we don't overflow (shouldn't handle resizing race conditions, but safety first)
-             let len = target_slice.len().min(source_slice.len());
-             target_slice[..len].copy_from_slice(&source_slice[..len]);
+            let target_slice = &mut target_buffer[start_idx..];
+            let source_slice = &self.static_keyboard_buffer;
+            // Ensure we don't overflow (shouldn't handle resizing race conditions, but safety first)
+            let len = target_slice.len().min(source_slice.len());
+            target_slice[..len].copy_from_slice(&source_slice[..len]);
         }
 
         // Calculate dirty black keys (Optimization)
@@ -343,12 +341,16 @@ impl OffscreenRenderer {
         for (i, color) in result.key_colors.iter().enumerate() {
             if color.is_some() {
                 if is_black(i) {
-                     dirty_keys.insert(i);
+                    dirty_keys.insert(i);
                 } else {
-                     // White key pressed: mark neighbors if they are black
-                     if i > 0 && is_black(i - 1) { dirty_keys.insert(i - 1); }
-                     // Note: keys_len is usually 128, but strictly we check i < 127
-                     if i < 127 && is_black(i + 1) { dirty_keys.insert(i + 1); }
+                    // White key pressed: mark neighbors if they are black
+                    if i > 0 && is_black(i - 1) {
+                        dirty_keys.insert(i - 1);
+                    }
+                    // Note: keys_len is usually 128, but strictly we check i < 127
+                    if i < 127 && is_black(i + 1) {
+                        dirty_keys.insert(i + 1);
+                    }
                 }
             }
         }
@@ -364,27 +366,34 @@ impl OffscreenRenderer {
             &dirty_keys,
             bar_color, // Pass bar color for black key gap fixing
         );
-        
+
         // Calculate NPS using history
         let file_stats = midi_file.stats();
         let total_passed = file_stats.passed_notes.unwrap_or(0);
-        
+
         self.nps_history.push_back((current_time, total_passed));
-        
+
         // Remove old entries (> 1.0s ago)
-        while self.nps_history.front().map_or(false, |&(t, _)| current_time - t > 1.0) {
+        while self
+            .nps_history
+            .front()
+            .map_or(false, |&(t, _)| current_time - t > 1.0)
+        {
             self.nps_history.pop_front();
         }
-        
-        let nps = if let (Some(&(start_t, start_n)), Some(&(end_t, end_n))) = (self.nps_history.front(), self.nps_history.back()) {
-             let dt = end_t - start_t;
-             if dt > 0.1 { // Require at least 0.1s of data to show meaningful NPS
-                  ((end_n - start_n) as f64 / dt).round() as u64
-             } else {
-                 0
-             }
+
+        let nps = if let (Some(&(start_t, start_n)), Some(&(end_t, end_n))) =
+            (self.nps_history.front(), self.nps_history.back())
+        {
+            let dt = end_t - start_t;
+            if dt > 0.1 {
+                // Require at least 0.1s of data to show meaningful NPS
+                ((end_n - start_n) as f64 / dt).round() as u64
+            } else {
+                0
+            }
         } else {
-             0
+            0
         };
 
         // Construct stats for overlay
@@ -395,17 +404,15 @@ impl OffscreenRenderer {
         // Render overlay
         super::overlay_renderer::draw_overlay(
             target_buffer,
-            self.width, 
+            self.width,
             self.height,
             midi_file,
             current_time,
             &stats,
             nps,
-            settings
+            settings,
         );
 
         Ok(())
     }
-
 }
-

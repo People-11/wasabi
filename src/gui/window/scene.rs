@@ -1,6 +1,6 @@
 mod cake_system;
-mod pie_system;
 pub mod note_list_system;
+mod pie_system;
 
 use egui::{Image, Ui};
 
@@ -9,7 +9,7 @@ use crate::{
     scenes::SceneSwapchain,
 };
 
-use self::{cake_system::CakeRenderer, pie_system::PieRenderer, note_list_system::NoteRenderer};
+use self::{cake_system::CakeRenderer, note_list_system::NoteRenderer, pie_system::PieRenderer};
 
 use super::{keyboard_layout::KeyboardView, GuiRenderer, GuiState};
 

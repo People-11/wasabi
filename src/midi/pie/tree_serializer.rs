@@ -129,7 +129,13 @@ impl TreeSerializer {
         let left = diff(left_addr, written_pos);
         let right = diff(right_addr, written_pos);
 
-        Self::push4(&mut self.written_values, mid, left, right, notes_to_the_left as i32);
+        Self::push4(
+            &mut self.written_values,
+            mid,
+            left,
+            right,
+            notes_to_the_left as i32,
+        );
         written_pos
     }
 

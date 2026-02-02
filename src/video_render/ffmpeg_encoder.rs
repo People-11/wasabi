@@ -19,11 +19,11 @@ enum WriterMessage {
 /// Available hardware encoders (in priority order)
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum HwEncoder {
-    NvencHevc,   // NVIDIA
-    VaapiHevc,   // vaapi
-    AmfHevc,     // AMD Proprietary
-    QsvHevc,     // Intel Proprietary
-    Software,    // Fallback: libx265
+    NvencHevc, // NVIDIA
+    VaapiHevc, // vaapi
+    AmfHevc,   // AMD Proprietary
+    QsvHevc,   // Intel Proprietary
+    Software,  // Fallback: libx265
 }
 
 impl HwEncoder {
@@ -40,8 +40,10 @@ impl HwEncoder {
     fn global_args(&self) -> Vec<&'static str> {
         match self {
             HwEncoder::VaapiHevc => vec![
-                "-init_hw_device", "vaapi=va:/dev/dri/renderD128",
-                "-filter_hw_device", "va"
+                "-init_hw_device",
+                "vaapi=va:/dev/dri/renderD128",
+                "-filter_hw_device",
+                "va",
             ],
             _ => vec![],
         }
@@ -49,12 +51,8 @@ impl HwEncoder {
 
     fn format_args(&self) -> Vec<&'static str> {
         match self {
-            HwEncoder::VaapiHevc => vec![
-                "-vf", "format=nv12,hwupload"
-            ],
-            _ => vec![
-                "-pix_fmt", "yuv420p"
-            ],
+            HwEncoder::VaapiHevc => vec!["-vf", "format=nv12,hwupload"],
+            _ => vec!["-pix_fmt", "yuv420p"],
         }
     }
 
@@ -62,35 +60,26 @@ impl HwEncoder {
         match self {
             // NVENC: Use slowest preset for best quality, CQ mode
             HwEncoder::NvencHevc => vec![
-                "-preset", "p7",        // Slowest = best quality
-                "-tune", "hq",          // High quality tuning
-                "-rc", "vbr",           // Variable bitrate
-                "-cq", "22",            // Quality level (like CRF)
-                "-b:v", "0",            // Let CQ control quality
+                "-preset", "p7", // Slowest = best quality
+                "-tune", "hq", // High quality tuning
+                "-rc", "vbr", // Variable bitrate
+                "-cq", "22", // Quality level (like CRF)
+                "-b:v", "0", // Let CQ control quality
             ],
             // vaaaapi
             HwEncoder::VaapiHevc => vec![
-                "-rc_mode", "CQP",
-                "-qp", "22",
+                "-rc_mode", "CQP", "-qp",
+                "22",
                 // "-compression_level", "1", Because 1 represents prioritizing speed over quality, the CQP mode embodies the “quality-first” logic for this hardware.
             ],
             // AMF: Quality preset with CQP mode
             HwEncoder::AmfHevc => vec![
-                "-quality", "quality",
-                "-rc", "cqp",
-                "-qp_i", "22",
-                "-qp_p", "22",
+                "-quality", "quality", "-rc", "cqp", "-qp_i", "22", "-qp_p", "22",
             ],
             // QSV: Veryslow for best quality
-            HwEncoder::QsvHevc => vec![
-                "-preset", "veryslow",
-                "-global_quality", "22",
-            ],
+            HwEncoder::QsvHevc => vec!["-preset", "veryslow", "-global_quality", "22"],
             // Software: Best quality settings
-            HwEncoder::Software => vec![
-                "-crf", "22",
-                "-preset", "medium",
-            ],
+            HwEncoder::Software => vec!["-crf", "22", "-preset", "medium"],
         }
     }
 }
@@ -134,34 +123,37 @@ fn detect_hw_encoder(ffmpeg_path: &Path) -> HwEncoder {
 /// Test if an encoder is available by running FFmpeg with a minimal test
 fn test_encoder(ffmpeg_path: &Path, encoder: HwEncoder) -> bool {
     let mut cmd = Command::new(ffmpeg_path);
-    cmd.arg("-hide_banner")
-       .args(["-loglevel", "error"]);
+    cmd.arg("-hide_banner").args(["-loglevel", "error"]);
 
     // Add global args (device init) for the test
     for arg in encoder.global_args() {
         cmd.arg(arg);
     }
 
-    cmd.arg("-f").arg("lavfi")
-       .arg("-i").arg("nullsrc=s=1280x720:d=0.1");
+    cmd.arg("-f")
+        .arg("lavfi")
+        .arg("-i")
+        .arg("nullsrc=s=1280x720:d=0.1");
 
     // Add format conversion args for the test
     for arg in encoder.format_args() {
         cmd.arg(arg);
     }
 
-    cmd.arg("-c:v").arg(encoder.codec_name())
-       .arg("-f").arg("null")
-       .arg("-");
+    cmd.arg("-c:v")
+        .arg(encoder.codec_name())
+        .arg("-f")
+        .arg("null")
+        .arg("-");
 
     // Hide console window on Windows
     configure_command(&mut cmd);
 
     cmd.stdout(Stdio::null())
-       .stderr(Stdio::null())
-       .status()
-       .map(|s| s.success())
-       .unwrap_or(false)
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 impl FFmpegEncoder {
@@ -193,10 +185,10 @@ impl FFmpegEncoder {
 
         // 2. Input Format
         cmd.args(["-f", "rawvideo"])
-           .args(["-pixel_format", "bgra"])
-           .args(["-video_size", &format!("{}x{}", width, height)])
-           .args(["-framerate", &fps.to_string()])
-           .args(["-i", "-"]); // Read from stdin
+            .args(["-pixel_format", "bgra"])
+            .args(["-video_size", &format!("{}x{}", width, height)])
+            .args(["-framerate", &fps.to_string()])
+            .args(["-i", "-"]); // Read from stdin
 
         // 3. Filter / Pixel Format (Critical for VAAPI)
         for arg in encoder.format_args() {
@@ -210,10 +202,10 @@ impl FFmpegEncoder {
         }
 
         cmd.arg("-y")
-           .arg(output_path.to_str().unwrap_or("output.mp4"))
-           .stdin(Stdio::piped())
-           .stdout(Stdio::null())
-           .stderr(Stdio::piped());
+            .arg(output_path.to_str().unwrap_or("output.mp4"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
 
         configure_command(&mut cmd);
 
@@ -222,9 +214,8 @@ impl FFmpegEncoder {
         let (sender, receiver) = mpsc::sync_channel::<WriterMessage>(MAX_FRAME_BUFFER);
         let (recycle_sender, recycle_receiver) = mpsc::channel();
 
-        let writer_thread = thread::spawn(move || {
-            writer_thread_fn(process, receiver, recycle_sender)
-        });
+        let writer_thread =
+            thread::spawn(move || writer_thread_fn(process, receiver, recycle_sender));
 
         Ok(Self {
             sender: Some(sender),
@@ -252,16 +243,18 @@ impl FFmpegEncoder {
         if frame_data.len() != expected_size {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("Invalid frame size: expected {}, got {}", expected_size, frame_data.len()),
+                format!(
+                    "Invalid frame size: expected {}, got {}",
+                    expected_size,
+                    frame_data.len()
+                ),
             ));
         }
 
         if let Some(ref sender) = self.sender {
-            sender.send(WriterMessage::Frame(frame_data))
-                .map_err(|_| std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "Writer thread has stopped"
-                ))?;
+            sender.send(WriterMessage::Frame(frame_data)).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Writer thread has stopped")
+            })?;
         }
         Ok(())
     }
@@ -273,7 +266,12 @@ impl FFmpegEncoder {
         if let Some(handle) = self.writer_thread.take() {
             match handle.join() {
                 Ok(result) => result?,
-                Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Thread panicked")),
+                Err(_) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Thread panicked",
+                    ))
+                }
             }
         }
         Ok(())

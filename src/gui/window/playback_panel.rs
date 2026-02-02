@@ -236,7 +236,8 @@ impl GuiWasabiWindow {
                             }
                             if ui.button("Render").clicked() {
                                 if let Some(midi) = self.midi_file.as_mut() {
-                                    midi.timer_mut().seek(Duration::seconds_f64(-settings.midi.start_delay));
+                                    midi.timer_mut()
+                                        .seek(Duration::seconds_f64(-settings.midi.start_delay));
                                     midi.timer_mut().pause();
                                     state.synth.reset();
                                 }
