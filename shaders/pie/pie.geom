@@ -8,7 +8,7 @@ layout(location = 0) in float left[];
 layout(location = 1) in float right[];
 layout(location = 2) in int start[];
 layout(location = 3) in int end[];
-layout(location = 4) in int buffer_index[];
+layout(location = 4) in int tree_offset[];
 layout(location = 5) in int border_width_in[];
 
 layout(location = 0) out vec2 v_uv;
@@ -16,7 +16,7 @@ layout(location = 1) out vec2 screen_pos;
 layout(location = 2) out vec2 v_left_right;
 layout(location = 3) out int ticks_height;
 layout(location = 4) out int ticks_start;
-layout(location = 5) out int v_buffer_index;
+layout(location = 5) out int v_tree_offset;
 layout(location = 6) out int border_width;
 
 layout(push_constant) uniform PushConstants {
@@ -61,7 +61,7 @@ void main()
     gl_Position = vec4(pos, 0, 1);
     v_uv = uv;
 
-    v_buffer_index = buffer_index[0];
+    v_tree_offset = tree_offset[0];
     v_left_right = vec2(left[0], right[0]);
     ticks_height = top_tick - bottom_tick;
     ticks_start = bottom_tick;
@@ -78,7 +78,7 @@ void main()
     gl_Position = vec4(pos, 0, 1);
     v_uv = uv;
 
-    v_buffer_index = buffer_index[0];
+    v_tree_offset = tree_offset[0];
     v_left_right = vec2(left[0], right[0]);
     ticks_height = top_tick - bottom_tick;
     ticks_start = bottom_tick;
@@ -95,7 +95,7 @@ void main()
     gl_Position = vec4(pos, 0, 1);
     v_uv = uv;
 
-    v_buffer_index = buffer_index[0];
+    v_tree_offset = tree_offset[0];
     v_left_right = vec2(left[0], right[0]);
     ticks_height = top_tick - bottom_tick;
     ticks_start = bottom_tick;
@@ -112,7 +112,7 @@ void main()
     gl_Position = vec4(pos, 0, 1);
     v_uv = uv;
 
-    v_buffer_index = buffer_index[0];
+    v_tree_offset = tree_offset[0];
     v_left_right = vec2(left[0], right[0]);
     ticks_height = top_tick - bottom_tick;
     ticks_start = bottom_tick;

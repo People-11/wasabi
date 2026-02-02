@@ -31,7 +31,7 @@ use crate::{
         window::{keyboard::GuiKeyboard, scene::GuiRenderScene},
         GuiRenderer, GuiState,
     },
-    midi::{CakeMIDIFile, InRamMIDIFile, LiveLoadMIDIFile, MIDIFileBase, MIDIFileUnion},
+    midi::{CakeMIDIFile, InRamMIDIFile, LiveLoadMIDIFile, PieMIDIFile, MIDIFileBase, MIDIFileUnion},
     settings::{MidiParsing, WasabiSettings},
     state::WasabiState,
     utils::NOTE_SPEED_RANGE,
@@ -441,6 +441,16 @@ impl GuiWasabiWindow {
                         match CakeMIDIFile::load_from_file(midi_path, synth, &settings) {
                             Ok(midi) => {
                                 let midi_file = MIDIFileUnion::Cake(midi);
+                                tx.send(midi_file).ok();
+                            }
+                            Err(e) => errors.error(&e),
+                        }
+                        loading_status.clear();
+                    }
+                    MidiParsing::Pie => {
+                        match PieMIDIFile::load_from_file(midi_path, synth, &settings) {
+                            Ok(midi) => {
+                                let midi_file = MIDIFileUnion::Pie(midi);
                                 tx.send(midi_file).ok();
                             }
                             Err(e) => errors.error(&e),

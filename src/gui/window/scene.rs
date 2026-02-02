@@ -1,4 +1,5 @@
 mod cake_system;
+mod pie_system;
 pub mod note_list_system;
 
 use egui::{Image, Ui};
@@ -8,13 +9,14 @@ use crate::{
     scenes::SceneSwapchain,
 };
 
-use self::{cake_system::CakeRenderer, note_list_system::NoteRenderer};
+use self::{cake_system::CakeRenderer, pie_system::PieRenderer, note_list_system::NoteRenderer};
 
 use super::{keyboard_layout::KeyboardView, GuiRenderer, GuiState};
 
 enum CurrentRenderer {
     Note(NoteRenderer),
     Cake(CakeRenderer),
+    Pie(PieRenderer),
     None,
 }
 
@@ -41,6 +43,20 @@ impl CurrentRenderer {
                 *self = CurrentRenderer::Cake(renderer);
                 match self {
                     CurrentRenderer::Cake(renderer) => renderer,
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+
+    fn get_pie_renderer(&mut self, renderer: &GuiRenderer) -> &mut PieRenderer {
+        match self {
+            CurrentRenderer::Pie(renderer) => renderer,
+            _ => {
+                let renderer = PieRenderer::new(renderer);
+                *self = CurrentRenderer::Pie(renderer);
+                match self {
+                    CurrentRenderer::Pie(renderer) => renderer,
                     _ => unreachable!(),
                 }
             }
@@ -95,6 +111,11 @@ impl GuiRenderScene {
             MIDIFileUnion::Cake(file) => self
                 .draw_system
                 .get_cake_renderer(state.renderer)
+                .draw(key_view, frame, file, view_range),
+
+            MIDIFileUnion::Pie(file) => self
+                .draw_system
+                .get_pie_renderer(state.renderer)
                 .draw(key_view, frame, file, view_range, None),
         };
 
