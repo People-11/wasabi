@@ -241,4 +241,49 @@ fn draw_rounded_rect_border(
     draw_solid_rect_alpha(buffer, width, height, x, x + thickness, y + radius, y + h as i32 - radius, color, alpha);
     // Right
     draw_solid_rect_alpha(buffer, width, height, x + w as i32 - thickness, x + w as i32, y + radius, y + h as i32 - radius, color, alpha);
+    // Draw four corners
+    let right = x + w as i32;
+    let bottom = y + h as i32;
+    let inner_radius = radius - thickness;
+    let r2_outer = radius * radius;
+    let r2_inner = inner_radius * inner_radius;
+
+    let corners = [
+        (x + radius, y + radius, -1, -1), // Top-left
+        (right - radius, y + radius, 1, -1), // Top-right
+        (x + radius, bottom - radius, -1, 1), // Bottom-left
+        (right - radius, bottom - radius, 1, 1), // Bottom-right
+    ];
+
+    let a_f32 = alpha as f32 / 255.0;
+
+    for (cx, cy, _, _) in corners {
+        let min_px = (cx - radius).max(0);
+        let max_px = (cx + radius).min(width as i32);
+        let min_py = (cy - radius).max(0);
+        let max_py = (cy + radius).min(height as i32);
+
+        for py in min_py..max_py {
+            for px in min_px..max_px {
+                let dx = px - cx;
+                let dy = py - cy;
+                let dist_sq = dx * dx + dy * dy;
+
+                if dist_sq <= r2_outer && dist_sq > r2_inner {
+                    // Only draw in the correct quadrant for each corner
+                    let is_in_quadrant = if cx <= x + radius { px <= cx } else { px >= cx }
+                                      && if cy <= y + radius { py <= cy } else { py >= cy };
+
+                    if is_in_quadrant {
+                        let idx = ((py as u32 * width + px as u32) * 4) as usize;
+                        if idx + 3 < buffer.len() {
+                            buffer[idx] = lerp_u8(buffer[idx], color.2, a_f32);
+                            buffer[idx + 1] = lerp_u8(buffer[idx + 1], color.1, a_f32);
+                            buffer[idx + 2] = lerp_u8(buffer[idx + 2], color.0, a_f32);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
