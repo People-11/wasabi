@@ -129,7 +129,7 @@ impl OffscreenRenderer {
         ));
 
         // Create render target (BGRA for FFmpeg compatibility)
-        let format = Format::B8G8R8A8_UNORM;
+        let format = Format::B8G8R8A8_SRGB;
         let render_image = ImageView::new_default(
             Image::new(
                 allocator.clone(),
@@ -252,9 +252,9 @@ impl OffscreenRenderer {
         // Get background color from settings
         let bg = settings.scene.bg_color;
         let bg_color = Some([
-            bg.r() as f32 / 255.0,
-            bg.g() as f32 / 255.0,
-            bg.b() as f32 / 255.0,
+            (bg.r() as f32 / 255.0).powf(2.2),
+            (bg.g() as f32 / 255.0).powf(2.2),
+            (bg.b() as f32 / 255.0).powf(2.2),
             bg.a() as f32 / 255.0,
         ]);
 
