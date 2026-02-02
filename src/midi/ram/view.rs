@@ -71,7 +71,8 @@ impl InRamNoteViewData {
                     if block_info.start < new_view_range.end {
                         break;
                     }
-                    column.data.notes_to_render_end -= column.block_notes_len(new_block_end - 1) as u64;
+                    column.data.notes_to_render_end -=
+                        column.block_notes_len(new_block_end - 1) as u64;
                     new_block_end -= 1;
                 }
             } else {
@@ -86,7 +87,8 @@ impl InRamNoteViewData {
                     if max_end >= new_view_range.start {
                         break;
                     }
-                    column.data.notes_to_render_start += column.block_notes_len(new_block_start) as u64;
+                    column.data.notes_to_render_start +=
+                        column.block_notes_len(new_block_start) as u64;
                     new_block_start += 1;
                 }
 
@@ -115,10 +117,12 @@ impl InRamNoteViewData {
                     if max_end >= new_view_range.start {
                         break;
                     }
-                    column.data.notes_to_render_start += column.block_notes_len(new_block_start) as u64;
+                    column.data.notes_to_render_start +=
+                        column.block_notes_len(new_block_start) as u64;
                     new_block_start += 1;
 
-                    column.data.notes_to_keyboard += column.block_notes_len(new_block_start - 1) as u64;
+                    column.data.notes_to_keyboard +=
+                        column.block_notes_len(new_block_start - 1) as u64;
                     column.data.blocks_to_keyboard += 1;
                 }
 

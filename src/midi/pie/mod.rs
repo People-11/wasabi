@@ -16,12 +16,15 @@ use crate::{
     gui::window::WasabiError,
     midi::{
         audio::ram::InRamAudioPlayer,
-        pie::{
-            tree_threader::{NoteEvent, ThreadedTreeSerializers},
-            blocks::FlatPieBlocks,
-        },
         open_file_and_signature,
-        shared::{audio::{FlatAudio, RawAudioBlock}, timer::TimeKeeper},
+        pie::{
+            blocks::FlatPieBlocks,
+            tree_threader::{NoteEvent, ThreadedTreeSerializers},
+        },
+        shared::{
+            audio::{FlatAudio, RawAudioBlock},
+            timer::TimeKeeper,
+        },
         MIDIColor,
     },
     settings::MidiSettings,
@@ -83,9 +86,8 @@ impl PieMIDIFile {
 
                 let int_time = (time * ticks_per_second as f64) as i32;
 
-                let channel_track = |channel: u8, track: u32| -> i32 {
-                    (channel as i32) + (track as i32) * 16
-                };
+                let channel_track =
+                    |channel: u8, track: u32| -> i32 { (channel as i32) + (track as i32) * 16 };
 
                 for event in batch.iter_events() {
                     let track = event.track;
@@ -128,9 +130,9 @@ impl PieMIDIFile {
         });
 
         let audio_join_handle = thread::spawn(move || {
-    let raw_blocks_iter = RawAudioBlock::build_raw_blocks(audio_rcv.into_iter());
-    FlatAudio::build_blocks(raw_blocks_iter)
-});
+            let raw_blocks_iter = RawAudioBlock::build_raw_blocks(audio_rcv.into_iter());
+            FlatAudio::build_blocks(raw_blocks_iter)
+        });
 
         let mut length = 0.0;
 
@@ -220,8 +222,6 @@ impl MIDIFileBase for PieMIDIFile {
     fn allows_seeking_backward(&self) -> bool {
         true
     }
-
-
 
     fn stats(&self) -> MIDIFileStats {
         let time = self.timer.get_time().as_seconds_f64();

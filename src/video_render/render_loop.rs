@@ -30,7 +30,10 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
     let fps = config.frame_rate.value();
     let frame_duration_secs = 1.0 / fps as f64;
 
-    println!("[RenderLoop] Starting GPU rendering: {}x{} @ {} FPS", width, height, fps);
+    println!(
+        "[RenderLoop] Starting GPU rendering: {}x{} @ {} FPS",
+        width, height, fps
+    );
 
     // Initialize offscreen renderer
     let mut renderer = OffscreenRenderer::new(width, height)
@@ -42,12 +45,9 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
     let silent_player = WasabiAudioPlayer::empty();
 
     // Load MIDI file
-    let mut midi_file = LiveLoadMIDIFile::load_from_file(
-        &config.midi_path,
-        silent_player,
-        &config.settings.midi,
-    )
-    .map_err(|e| format!("Failed to load MIDI: {:?}", e))?;
+    let mut midi_file =
+        LiveLoadMIDIFile::load_from_file(&config.midi_path, silent_player, &config.settings.midi)
+            .map_err(|e| format!("Failed to load MIDI: {:?}", e))?;
 
     println!("[RenderLoop] MIDI file loaded");
 
@@ -61,7 +61,10 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
         wait_count += 1;
         // Log every 5 seconds
         if wait_count % 50 == 0 {
-            println!("[RenderLoop] Waiting for MIDI statistics... ({}s)", wait_count / 10);
+            println!(
+                "[RenderLoop] Waiting for MIDI statistics... ({}s)",
+                wait_count / 10
+            );
         }
     };
     println!("[RenderLoop] MIDI length: {:.2} seconds", midi_length);
@@ -74,14 +77,9 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
     println!("[RenderLoop] Total frames to render: {}", total_frames);
 
     // Initialize FFmpeg encoder
-    let mut encoder = FFmpegEncoder::new(
-        &config.ffmpeg_path,
-        &config.output_path,
-        width,
-        height,
-        fps,
-    )
-    .map_err(|e| format!("Failed to start FFmpeg: {}", e))?;
+    let mut encoder =
+        FFmpegEncoder::new(&config.ffmpeg_path, &config.output_path, width, height, fps)
+            .map_err(|e| format!("Failed to start FFmpeg: {}", e))?;
 
     println!("[RenderLoop] FFmpeg encoder started");
 
@@ -100,13 +98,22 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
         }
 
         // Seek to current time
-        midi_file.timer_mut().seek(Duration::seconds_f64(current_time));
+        midi_file
+            .timer_mut()
+            .seek(Duration::seconds_f64(current_time));
 
         // Get a recycled buffer (or create new one) from the encoder
         let mut frame_buffer = encoder.get_buffer();
 
         // Render frame into the buffer
-        renderer.render_frame_into(&mut frame_buffer, &mut midi_file, view_range, &config.settings, current_time)
+        renderer
+            .render_frame_into(
+                &mut frame_buffer,
+                &mut midi_file,
+                view_range,
+                &config.settings,
+                current_time,
+            )
             .map_err(|e| format!("Failed to render frame {}: {}", frame_num, e))?;
 
         // Write frame to FFmpeg (passes ownership of buffer)
@@ -121,7 +128,10 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
         // Log progress periodically
         if frame_num % 100 == 0 {
             let percent = (frame_num as f64 / total_frames as f64) * 100.0;
-            println!("[RenderLoop] Progress: {:.1}% ({}/{})", percent, frame_num, total_frames);
+            println!(
+                "[RenderLoop] Progress: {:.1}% ({}/{})",
+                percent, frame_num, total_frames
+            );
         }
 
         // Advance time
@@ -134,6 +144,9 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
         .map_err(|e| format!("Failed to finish encoding: {}", e))?;
 
     progress.is_complete.store(true, Ordering::Relaxed);
-    println!("[RenderLoop] Rendering complete! Output: {:?}", config.output_path);
+    println!(
+        "[RenderLoop] Rendering complete! Output: {:?}",
+        config.output_path
+    );
     Ok(())
 }

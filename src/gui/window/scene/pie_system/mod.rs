@@ -36,10 +36,7 @@ use vulkano::{
 };
 
 use crate::{
-    gui::{
-        window::keyboard_layout::KeyboardView,
-        GuiRenderer,
-    },
+    gui::{window::keyboard_layout::KeyboardView, GuiRenderer},
     midi::{PieMIDIFile, PieSignature},
 };
 
@@ -68,8 +65,6 @@ struct PieBatch {
     end_key: usize,
     base_offset: usize,
 }
-
-
 
 pub struct PieRenderer {
     gfx_queue: Arc<Queue>,
@@ -187,8 +182,6 @@ impl PieRenderer {
         )
         .unwrap();
 
-
-
         PieRenderer {
             gfx_queue,
             batches: vec![],
@@ -239,7 +232,7 @@ impl PieRenderer {
         if self.current_file_signature.as_ref() != Some(&curr_signature) {
             self.current_file_signature = Some(curr_signature);
             self.batches.clear();
-            
+
             let flat_blocks = midi_file.flat_blocks();
             let mut current_batch_start = 0;
             let mut current_batch_size = 0;
@@ -266,7 +259,8 @@ impl PieRenderer {
                             ..Default::default()
                         },
                         slice.iter().copied(),
-                    ).unwrap();
+                    )
+                    .unwrap();
 
                     self.batches.push(PieBatch {
                         buffer,
@@ -297,7 +291,8 @@ impl PieRenderer {
                         ..Default::default()
                     },
                     slice.iter().copied(),
-                ).unwrap();
+                )
+                .unwrap();
 
                 self.batches.push(PieBatch {
                     buffer,
@@ -391,15 +386,17 @@ impl PieRenderer {
             )
             .unwrap();
 
-            command_buffer_builder.bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                self.pipeline_clear.layout().clone(),
-                0,
-                data_descriptor,
-            ).unwrap();
+            command_buffer_builder
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Graphics,
+                    self.pipeline_clear.layout().clone(),
+                    0,
+                    data_descriptor,
+                )
+                .unwrap();
 
             let mut batch_instances = Vec::new();
-            
+
             // Black keys
             for i in batch.start_key..batch.end_key {
                 let key = key_view.note(i);
@@ -471,11 +468,7 @@ impl PieRenderer {
         // to keep this more efficient
         let flat_blocks = midi_file.flat_blocks();
         let colors = (0..flat_blocks.len())
-            .map(|key| {
-                flat_blocks
-                    .get_note_at(key, screen_start)
-                    .map(|n| n.color)
-            })
+            .map(|key| flat_blocks.get_note_at(key, screen_start).map(|n| n.color))
             .collect();
         let rendered_notes = (0..flat_blocks.len())
             .map(|key| {

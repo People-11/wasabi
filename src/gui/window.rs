@@ -31,7 +31,9 @@ use crate::{
         window::{keyboard::GuiKeyboard, scene::GuiRenderScene},
         GuiRenderer, GuiState,
     },
-    midi::{CakeMIDIFile, InRamMIDIFile, LiveLoadMIDIFile, PieMIDIFile, MIDIFileBase, MIDIFileUnion},
+    midi::{
+        CakeMIDIFile, InRamMIDIFile, LiveLoadMIDIFile, MIDIFileBase, MIDIFileUnion, PieMIDIFile,
+    },
     settings::{MidiParsing, WasabiSettings},
     state::WasabiState,
     utils::NOTE_SPEED_RANGE,

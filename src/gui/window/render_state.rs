@@ -1,12 +1,15 @@
 use std::path::PathBuf;
-use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
 
 /// 渲染分辨率预设
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderResolution {
     #[default]
-    HD1080,  // 1920x1080
-    UHD4K,   // 3840x2160
+    HD1080, // 1920x1080
+    UHD4K, // 3840x2160
 }
 
 impl RenderResolution {
@@ -103,11 +106,13 @@ impl RenderProgress {
     pub fn get_performance_stats(&self) -> Option<(f64, u64)> {
         let current = self.current_frame.load(Ordering::Relaxed);
         let total = self.total_frames.load(Ordering::Relaxed);
-        if current == 0 { return None; }
+        if current == 0 {
+            return None;
+        }
 
         let mut history = self.fps_history.lock().ok()?;
         let now = std::time::Instant::now();
-        
+
         // Push current sample
         history.push_back((now, current));
 
@@ -116,17 +121,25 @@ impl RenderProgress {
             history.pop_front();
         }
 
-        if history.len() < 2 { return None; }
+        if history.len() < 2 {
+            return None;
+        }
 
         let (start_time, start_frame) = history.front()?;
         let (end_time, end_frame) = history.back()?;
-        
+
         let dt = end_time.duration_since(*start_time).as_secs_f64();
-        if dt < 0.1 { return None; }
+        if dt < 0.1 {
+            return None;
+        }
 
         let fps = (end_frame - start_frame) as f64 / dt;
         let remaining = total.saturating_sub(current);
-        let eta = if fps > 0.1 { (remaining as f64 / fps) as u64 } else { 0 };
+        let eta = if fps > 0.1 {
+            (remaining as f64 / fps) as u64
+        } else {
+            0
+        };
 
         Some((fps, eta))
     }

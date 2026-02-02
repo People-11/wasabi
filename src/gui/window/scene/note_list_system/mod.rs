@@ -134,8 +134,13 @@ impl NoteRenderer {
 
         let view_range = note_views.range().length() as f32;
 
-        self.render_pass
-            .draw(final_image, key_view, view_range, bg_color, viewport, |buffer| {
+        self.render_pass.draw(
+            final_image,
+            key_view,
+            view_range,
+            bg_color,
+            viewport,
+            |buffer| {
                 let buffer_length = buffer.len() as usize;
 
                 let buffer_writer = UnsafeSyncCell::new(buffer.write().unwrap());
@@ -218,7 +223,8 @@ impl NoteRenderer {
                 } else {
                     NotePassStatus::HasMoreNotes
                 }
-            });
+            },
+        );
 
         // Sort for output metrics
         columns_view_info.sort_unstable_by_key(|k| k.key);

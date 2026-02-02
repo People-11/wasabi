@@ -16,14 +16,10 @@ use palette::{convert::FromColorUnclamped, Hsv, Srgb};
 use rand::seq::IteratorRandom;
 use rand::Rng;
 
-pub use cake::{
-    CakeBlock, CakeMIDIFile, CakeSignature, IntVector4,
-};
+pub use cake::{CakeBlock, CakeMIDIFile, CakeSignature, IntVector4};
 pub mod pie;
-pub use pie::{
-    PieMIDIFile, PieSignature,
-};
 pub use live::LiveLoadMIDIFile;
+pub use pie::{PieMIDIFile, PieSignature};
 pub use ram::InRamMIDIFile;
 
 use crate::{

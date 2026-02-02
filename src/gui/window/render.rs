@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use egui::{ComboBox, ProgressBar};
 
-use crate::video_render::{RenderConfig, render_loop::start_render};
+use crate::video_render::{render_loop::start_render, RenderConfig};
 use crate::{settings::WasabiSettings, state::WasabiState, utils};
 
 use super::render_state::{RenderFrameRate, RenderResolution};
@@ -18,7 +18,7 @@ impl GuiWasabiWindow {
         if !state.show_render {
             return;
         }
-        
+
         // Initialize FFmpeg path from settings if not set
         if state.render_state.ffmpeg_path.is_none() {
             if let Some(ref path) = settings.gui.ffmpeg_path {
@@ -31,9 +31,9 @@ impl GuiWasabiWindow {
         // Remove shadow and customize frame
         let mut frame = utils::create_window_frame(ctx);
         frame.shadow = egui::Shadow::NONE;
-        
+
         // Slightly shorter since we are reducing padding
-        let size = [500.0, 480.0]; 
+        let size = [500.0, 480.0];
 
         egui::Window::new("Render Video")
             .resizable(false)
@@ -49,31 +49,36 @@ impl GuiWasabiWindow {
                 // Disable text selection in this window
                 ui.style_mut().interaction.selectable_labels = false;
                 ui.add_space(10.0);
-                
+
                 // Determine if interaction is allowed
                 let is_rendering = state.render_state.is_rendering;
-                
+
                 ui.add_enabled_ui(!is_rendering, |ui| {
-                     self.render_settings_ui(ui, settings, state);
+                    self.render_settings_ui(ui, settings, state);
                 });
 
                 ui.add_space(15.0);
                 ui.separator();
-                
+
                 // Conditional spacing based on state to match desired layout
                 // But user wants spacing inside render_progress_ui to be consistent
-                
+
                 if is_rendering {
-                     ui.add_space(15.0);
-                     self.render_progress_ui(ui, settings, state);
+                    ui.add_space(15.0);
+                    self.render_progress_ui(ui, settings, state);
                 } else {
-                     ui.add_space(15.0);
-                     self.render_actions_ui(ui, settings, state);
+                    ui.add_space(15.0);
+                    self.render_actions_ui(ui, settings, state);
                 }
             });
     }
 
-    fn render_settings_ui(&mut self, ui: &mut egui::Ui, settings: &mut WasabiSettings, state: &mut WasabiState) {
+    fn render_settings_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        settings: &mut WasabiSettings,
+        state: &mut WasabiState,
+    ) {
         ui.heading("Input Sources");
         ui.add_space(5.0);
         egui::Grid::new("render_input_grid")
@@ -89,7 +94,9 @@ impl GuiWasabiWindow {
                             if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("MIDI", &["mid", "MID"])
                                 .set_title("Select MIDI file")
-                                .set_directory(last_location.parent().unwrap_or(std::path::Path::new("./")))
+                                .set_directory(
+                                    last_location.parent().unwrap_or(std::path::Path::new("./")),
+                                )
                                 .pick_file()
                             {
                                 // Set output path to same name but .mp4
@@ -99,9 +106,13 @@ impl GuiWasabiWindow {
                                 state.render_state.midi_path = Some(path);
                             }
                         }
-                        
+
                         let text = if let Some(path) = &state.render_state.midi_path {
-                            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            let name = path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
                             if name.len() > 30 {
                                 format!("{}...", &name[..27])
                             } else {
@@ -132,7 +143,11 @@ impl GuiWasabiWindow {
                             }
                         }
                         let text = if let Some(path) = &state.render_state.ffmpeg_path {
-                            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            let name = path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
                             if name.len() > 30 {
                                 format!("{}...", &name[..27])
                             } else {
@@ -148,22 +163,22 @@ impl GuiWasabiWindow {
             });
 
         ui.add_space(15.0);
-        
+
         ui.heading("Output");
         ui.add_space(5.0);
         egui::Grid::new("render_output_grid")
-             .num_columns(2)
-             .spacing([10.0, 8.0])
-             .min_col_width(80.0)
-             .show(ui, |ui| {
+            .num_columns(2)
+            .spacing([10.0, 8.0])
+            .min_col_width(80.0)
+            .show(ui, |ui| {
                 ui.label("File:");
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                         if ui.button("Browse...").clicked() {
+                        if ui.button("Browse...").clicked() {
                             let mut dialog = rfd::FileDialog::new()
                                 .add_filter("MP4 Video", &["mp4"])
                                 .set_title("Save video as...");
-                            
+
                             // Pre-fill directory and filename if available
                             if let Some(ref current_path) = state.render_state.output_path {
                                 if let Some(parent) = current_path.parent() {
@@ -173,7 +188,7 @@ impl GuiWasabiWindow {
                                     dialog = dialog.set_file_name(filename.to_string_lossy());
                                 }
                             }
-                            
+
                             if let Some(path) = dialog.save_file() {
                                 let path = if path.extension().is_none() {
                                     path.with_extension("mp4")
@@ -184,7 +199,11 @@ impl GuiWasabiWindow {
                             }
                         }
                         let text = if let Some(path) = &state.render_state.output_path {
-                            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            let name = path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
                             if name.len() > 30 {
                                 format!("{}...", &name[..27])
                             } else {
@@ -197,52 +216,86 @@ impl GuiWasabiWindow {
                     });
                 });
                 ui.end_row();
-             });
+            });
 
         ui.add_space(15.0);
 
         ui.heading("Video Settings");
         ui.add_space(5.0);
         egui::Grid::new("render_settings_grid")
-             .num_columns(4) // Label, Combo, Label, Combo
-             .spacing([10.0, 8.0])
-             .show(ui, |ui| {
-                 ui.label("Resolution:");
-                 ComboBox::from_id_salt("resolution_combo")
+            .num_columns(4) // Label, Combo, Label, Combo
+            .spacing([10.0, 8.0])
+            .show(ui, |ui| {
+                ui.label("Resolution:");
+                ComboBox::from_id_salt("resolution_combo")
                     .selected_text(state.render_state.resolution.label())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.render_state.resolution, RenderResolution::HD1080, RenderResolution::HD1080.label());
-                        ui.selectable_value(&mut state.render_state.resolution, RenderResolution::UHD4K, RenderResolution::UHD4K.label());
+                        ui.selectable_value(
+                            &mut state.render_state.resolution,
+                            RenderResolution::HD1080,
+                            RenderResolution::HD1080.label(),
+                        );
+                        ui.selectable_value(
+                            &mut state.render_state.resolution,
+                            RenderResolution::UHD4K,
+                            RenderResolution::UHD4K.label(),
+                        );
                     });
-                
-                 ui.label("Frame Rate:");
-                 ComboBox::from_id_salt("framerate_combo")
+
+                ui.label("Frame Rate:");
+                ComboBox::from_id_salt("framerate_combo")
                     .selected_text(state.render_state.frame_rate.label())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.render_state.frame_rate, RenderFrameRate::Fps30, RenderFrameRate::Fps30.label());
-                        ui.selectable_value(&mut state.render_state.frame_rate, RenderFrameRate::Fps60, RenderFrameRate::Fps60.label());
-                        ui.selectable_value(&mut state.render_state.frame_rate, RenderFrameRate::Fps120, RenderFrameRate::Fps120.label());
+                        ui.selectable_value(
+                            &mut state.render_state.frame_rate,
+                            RenderFrameRate::Fps30,
+                            RenderFrameRate::Fps30.label(),
+                        );
+                        ui.selectable_value(
+                            &mut state.render_state.frame_rate,
+                            RenderFrameRate::Fps60,
+                            RenderFrameRate::Fps60.label(),
+                        );
+                        ui.selectable_value(
+                            &mut state.render_state.frame_rate,
+                            RenderFrameRate::Fps120,
+                            RenderFrameRate::Fps120.label(),
+                        );
                     });
-                 ui.end_row();
-             });
-        
+                ui.end_row();
+            });
+
         ui.add_space(5.0);
-        ui.label(egui::RichText::new("Note: Other settings (colors, speed, range) use current app configuration.").weak().small());
+        ui.label(
+            egui::RichText::new(
+                "Note: Other settings (colors, speed, range) use current app configuration.",
+            )
+            .weak()
+            .small(),
+        );
     }
 
-    fn render_actions_ui(&mut self, ui: &mut egui::Ui, settings: &mut WasabiSettings, state: &mut WasabiState) {
+    fn render_actions_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        settings: &mut WasabiSettings,
+        state: &mut WasabiState,
+    ) {
         ui.horizontal(|ui| {
             let can_start = state.render_state.midi_path.is_some()
                 && state.render_state.ffmpeg_path.is_some()
                 && state.render_state.output_path.is_some();
-            
+
             // Centering buttons roughly
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Close").clicked() {
                     state.show_render = false;
                 }
-                
-                if ui.add_enabled(can_start, egui::Button::new("🎬 Start Render")).clicked() {
+
+                if ui
+                    .add_enabled(can_start, egui::Button::new("🎬 Start Render"))
+                    .clicked()
+                {
                     // Start render logic
                     let config = RenderConfig::new(
                         state.render_state.midi_path.clone().unwrap(),
@@ -252,7 +305,7 @@ impl GuiWasabiWindow {
                         state.render_state.frame_rate,
                         settings.clone(),
                     );
-                    
+
                     state.render_state.progress.reset();
                     state.render_state.is_rendering = true;
                     // Temporarily disable VSYNC for performance
@@ -271,52 +324,80 @@ impl GuiWasabiWindow {
                         is_parsing: Arc::clone(&state.render_state.progress.is_parsing),
                         fps_history: Arc::clone(&state.render_state.progress.fps_history),
                     };
-                    
+
                     start_render(config, progress);
                 }
             });
         });
     }
 
-    fn render_progress_ui(&mut self, ui: &mut egui::Ui, settings: &mut WasabiSettings, state: &mut WasabiState) {
+    fn render_progress_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        settings: &mut WasabiSettings,
+        state: &mut WasabiState,
+    ) {
         ui.vertical_centered(|ui| {
             // Heading
-            if state.render_state.progress.is_parsing.load(std::sync::atomic::Ordering::Relaxed) {
+            if state
+                .render_state
+                .progress
+                .is_parsing
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
                 ui.heading("Parsing MIDI Info...");
             } else {
                 ui.heading("Rendering in Progress...");
             }
-            
+
             // Consistent Spacing 1
             ui.add_space(15.0);
-            
+
             let progress = state.render_state.progress.progress();
-            
+
             ui.scope(|ui| {
                 // Apply custom color ONLY to this scope
                 ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(0x66, 0x99, 0x00);
                 let bar = ProgressBar::new(progress)
-                    .desired_height(14.0) 
+                    .desired_height(14.0)
                     .animate(false)
                     .corner_radius(egui::CornerRadius::ZERO);
                 ui.add(bar);
             });
-            
+
             // Consistent Spacing 2
             ui.add_space(15.0);
-            
-            let current = state.render_state.progress.current_frame.load(std::sync::atomic::Ordering::Relaxed);
-            let total = state.render_state.progress.total_frames.load(std::sync::atomic::Ordering::Relaxed);
+
+            let current = state
+                .render_state
+                .progress
+                .current_frame
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let total = state
+                .render_state
+                .progress
+                .total_frames
+                .load(std::sync::atomic::Ordering::Relaxed);
             let mut info_text = format!("Frame: {} / {}", current, total);
             if let Some((fps, eta)) = state.render_state.progress.get_performance_stats() {
-                 info_text.push_str(&format!(" | {:.1} FPS | ETA: {:02}:{:02}", fps, eta / 60, eta % 60));
+                info_text.push_str(&format!(
+                    " | {:.1} FPS | ETA: {:02}:{:02}",
+                    fps,
+                    eta / 60,
+                    eta % 60
+                ));
             }
             ui.monospace(info_text);
-            
+
             // Consistent Spacing 3
             ui.add_space(15.0);
-            
-            if state.render_state.progress.is_complete.load(std::sync::atomic::Ordering::Relaxed) {
+
+            if state
+                .render_state
+                .progress
+                .is_complete
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
                 state.render_state.is_rendering = false;
                 // Restore VSYNC
                 if let Some(original) = state.render_state.original_vsync.take() {
@@ -325,12 +406,16 @@ impl GuiWasabiWindow {
             }
 
             if ui.button("Cancel Render").clicked() {
-                 state.render_state.progress.is_cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
-                 state.render_state.is_rendering = false;
-                 // Restore VSYNC
-                 if let Some(original) = state.render_state.original_vsync.take() {
-                     settings.gui.vsync = original;
-                 }
+                state
+                    .render_state
+                    .progress
+                    .is_cancelled
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                state.render_state.is_rendering = false;
+                // Restore VSYNC
+                if let Some(original) = state.render_state.original_vsync.take() {
+                    settings.gui.vsync = original;
+                }
             }
         });
     }

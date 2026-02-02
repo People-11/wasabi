@@ -4,8 +4,6 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 
 use super::tree_serializer::TreeSerializer;
 
-
-
 pub enum NoteEvent {
     On {
         time: i32,
