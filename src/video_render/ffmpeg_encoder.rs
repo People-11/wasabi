@@ -56,30 +56,30 @@ impl HwEncoder {
         }
     }
 
-    fn quality_args(&self) -> Vec<&'static str> {
+    fn quality_args(&self, quality: u8) -> Vec<String> {
         match self {
             // NVENC: Use slowest preset for best quality, CQ mode
             HwEncoder::NvencHevc => vec![
-                "-preset", "p7", // Slowest = best quality
-                "-tune", "hq", // High quality tuning
-                "-rc", "vbr", // Variable bitrate
-                "-cq", "16", // Quality level (like CRF)
-                "-b:v", "0", // Let CQ control quality
+                "-preset".to_string(), "p7".to_string(), // Slowest = best quality
+                "-tune".to_string(), "hq".to_string(), // High quality tuning
+                "-rc".to_string(), "vbr".to_string(), // Variable bitrate
+                "-cq".to_string(), quality.to_string(), // Quality level (like CRF)
+                "-b:v".to_string(), "0".to_string(), // Let CQ control quality
             ],
             // vaaaapi
             HwEncoder::VaapiHevc => vec![
-                "-rc_mode", "CQP", "-qp",
-                "16",
+                "-rc_mode".to_string(), "CQP".to_string(), "-qp".to_string(),
+                quality.to_string(),
                 // "-compression_level", "1", Because 1 represents prioritizing speed over quality, the CQP mode embodies the “quality-first” logic for this hardware.
             ],
             // AMF: Quality preset with CQP mode
             HwEncoder::AmfHevc => vec![
-                "-quality", "quality", "-rc", "cqp", "-qp_i", "16", "-qp_p", "16",
+                "-quality".to_string(), "quality".to_string(), "-rc".to_string(), "cqp".to_string(), "-qp_i".to_string(), quality.to_string(), "-qp_p".to_string(), quality.to_string(),
             ],
             // QSV: Veryslow for best quality
-            HwEncoder::QsvHevc => vec!["-preset", "veryslow", "-global_quality", "16"],
+            HwEncoder::QsvHevc => vec!["-preset".to_string(), "veryslow".to_string(), "-global_quality".to_string(), quality.to_string()],
             // Software: Best quality settings
-            HwEncoder::Software => vec!["-crf", "16", "-preset", "medium"],
+            HwEncoder::Software => vec!["-crf".to_string(), quality.to_string(), "-preset".to_string(), "medium".to_string()],
         }
     }
 }
@@ -165,12 +165,14 @@ impl FFmpegEncoder {
     /// * `width` - Video width in pixels
     /// * `height` - Video height in pixels
     /// * `fps` - Frames per second
+    /// * `quality` - Quality level (CRF/CQ), lower is better
     pub fn new(
         ffmpeg_path: &Path,
         output_path: &Path,
         width: u32,
         height: u32,
         fps: u32,
+        quality: u8,
     ) -> std::io::Result<Self> {
         // Auto-detect best encoder
         let encoder = detect_hw_encoder(ffmpeg_path);
@@ -197,7 +199,7 @@ impl FFmpegEncoder {
 
         // 4. Codec & Output
         cmd.args(["-c:v", encoder.codec_name()]);
-        for arg in encoder.quality_args() {
+        for arg in encoder.quality_args(quality) {
             cmd.arg(arg);
         }
 

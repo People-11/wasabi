@@ -78,7 +78,7 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
 
     // Initialize FFmpeg encoder
     let mut encoder =
-        FFmpegEncoder::new(&config.ffmpeg_path, &config.output_path, width, height, fps)
+        FFmpegEncoder::new(&config.ffmpeg_path, &config.output_path, width, height, fps, config.quality)
             .map_err(|e| format!("Failed to start FFmpeg: {}", e))?;
 
     println!("[RenderLoop] FFmpeg encoder started");

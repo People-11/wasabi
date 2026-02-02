@@ -22,8 +22,8 @@ impl RenderResolution {
 
     pub fn label(&self) -> &'static str {
         match self {
-            RenderResolution::HD1080 => "1080P (1920×1080)",
-            RenderResolution::UHD4K => "4K (3840×2160)",
+            RenderResolution::HD1080 => "1920x1080",
+            RenderResolution::UHD4K => "3840x2160",
         }
     }
 }
@@ -146,16 +146,32 @@ impl RenderProgress {
 }
 
 /// 渲染状态
-#[derive(Default)]
 pub struct RenderState {
     pub midi_path: Option<PathBuf>,
     pub ffmpeg_path: Option<PathBuf>,
     pub output_path: Option<PathBuf>,
     pub resolution: RenderResolution,
     pub frame_rate: RenderFrameRate,
+    pub quality: u8,
     pub is_rendering: bool,
     pub original_vsync: Option<bool>,
     pub progress: RenderProgress,
+}
+
+impl Default for RenderState {
+    fn default() -> Self {
+        Self {
+            midi_path: None,
+            ffmpeg_path: None,
+            output_path: None,
+            resolution: RenderResolution::default(),
+            frame_rate: RenderFrameRate::default(),
+            quality: 16,
+            is_rendering: false,
+            original_vsync: None,
+            progress: RenderProgress::default(),
+        }
+    }
 }
 
 impl RenderState {
