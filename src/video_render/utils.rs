@@ -2,11 +2,22 @@
 //!
 //! This module contains shared helper functions used across the video rendering system.
 
-/// Linear interpolation between two u8 values
-#[inline]
-pub fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
-    (a as f32 * (1.0 - t) + b as f32 * t) as u8
+/// Integer Alpha Blending (Fast approximation, error < 0.5)
+/// result = (dst * (255 - alpha) + src * alpha + 128) >> 8
+#[inline(always)]
+pub fn blend_alpha_int(dst: u8, src: u8, alpha: u8) -> u8 {
+    let inv_alpha = 255u16 - alpha as u16;
+    ((dst as u16 * inv_alpha + src as u16 * alpha as u16 + 128) >> 8) as u8
 }
+
+/// Linear interpolation between two u8 values (Using integer approximation)
+#[inline(always)]
+pub fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
+    // Convert t (0.0-1.0) to integer alpha (0-255)
+    let alpha = (t * 255.0 + 0.5) as u8;
+    blend_alpha_int(a, b, alpha)
+}
+
 
 /// Darken a color by multiplying with a factor (0.0 - 1.0)
 #[inline]
@@ -103,20 +114,18 @@ pub fn draw_solid_rect_alpha(
             }
         }
     } else {
-        // Alpha blending
-        let a = alpha as f32 / 255.0;
-        let inv_a = 1.0 - a;
-        let src_b = color.2 as f32 * a;
-        let src_g = color.1 as f32 * a;
-        let src_r = color.0 as f32 * a;
+        // Alpha blending - Optimized integer version
+        let src_b = color.2;
+        let src_g = color.1;
+        let src_r = color.0;
 
         for y in y_start..y_end {
             let row_offset = y * stride;
             for x in x_start..x_end {
                 let idx = row_offset + x * 4;
-                buffer[idx] = (buffer[idx] as f32 * inv_a + src_b) as u8;
-                buffer[idx + 1] = (buffer[idx + 1] as f32 * inv_a + src_g) as u8;
-                buffer[idx + 2] = (buffer[idx + 2] as f32 * inv_a + src_r) as u8;
+                buffer[idx] = blend_alpha_int(buffer[idx], src_b, alpha);
+                buffer[idx + 1] = blend_alpha_int(buffer[idx + 1], src_g, alpha);
+                buffer[idx + 2] = blend_alpha_int(buffer[idx + 2], src_r, alpha);
             }
         }
     }

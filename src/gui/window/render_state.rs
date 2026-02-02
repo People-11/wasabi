@@ -166,7 +166,7 @@ impl Default for RenderState {
             output_path: None,
             resolution: RenderResolution::default(),
             frame_rate: RenderFrameRate::default(),
-            quality: 16,
+            quality: 28,
             is_rendering: false,
             original_vsync: None,
             progress: RenderProgress::default(),
