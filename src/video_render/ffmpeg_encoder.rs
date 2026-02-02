@@ -37,55 +37,45 @@ impl HwEncoder {
         }
     }
 
-    fn global_args(&self) -> Vec<&'static str> {
+    fn global_args(&self) -> &'static [&'static str] {
         match self {
-            HwEncoder::VaapiHevc => vec![
+            HwEncoder::VaapiHevc => &[
                 "-init_hw_device",
                 "vaapi=va:/dev/dri/renderD128",
                 "-filter_hw_device",
                 "va",
             ],
-            _ => vec![],
+            _ => &[],
         }
     }
 
-    fn format_args(&self) -> Vec<&'static str> {
+    fn format_args(&self) -> &'static [&'static str] {
         match self {
-            HwEncoder::VaapiHevc => vec!["-vf", "format=nv12,hwupload"],
-            _ => vec!["-pix_fmt", "yuv420p"],
+            HwEncoder::VaapiHevc => &["-vf", "format=nv12,hwupload"],
+            HwEncoder::Software => &["-pix_fmt", "yuv420p"],
+            _ => &["-pix_fmt", "nv12"],
         }
     }
 
-    fn quality_args(&self, quality: u8) -> Vec<String> {
+    fn quality_args(&self, quality: u8, fps: u32) -> Vec<String> {
         match self {
-            // NVENC: Use slowest preset for best quality, CQ mode
             HwEncoder::NvencHevc => vec![
-                "-preset".to_string(), "p7".to_string(), // Slowest = best quality
-                "-tune".to_string(), "hq".to_string(), // High quality tuning
-                "-rc".to_string(), "vbr".to_string(), // Variable bitrate
-                "-cq".to_string(), quality.to_string(), // Quality level (like CRF)
-                "-b:v".to_string(), "0".to_string(), // Let CQ control quality
+                "-preset".to_string(), "p7".to_string(), "-tune".to_string(), "hq".to_string(), "-rc".to_string(), "constqp".to_string(), "-qp".to_string(), quality.to_string(), "-spatial-aq".to_string(), "1".to_string(), "-temporal-aq".to_string(), "1".to_string(), "-rc-lookahead".to_string(), (fps / 2).to_string(),
             ],
-            // vaaaapi
             HwEncoder::VaapiHevc => vec![
-                "-rc_mode".to_string(), "CQP".to_string(), "-qp".to_string(),
-                quality.to_string(),
+                "-rc_mode".to_string(), "CQP".to_string(), "-qp".to_string(), quality.to_string(),
                 // "-compression_level", "1", Because 1 represents prioritizing speed over quality, the CQP mode embodies the “quality-first” logic for this hardware.
             ],
-            // AMF: Quality preset with CQP mode
             HwEncoder::AmfHevc => vec![
                 "-quality".to_string(), "quality".to_string(), "-rc".to_string(), "cqp".to_string(), "-qp_i".to_string(), quality.to_string(), "-qp_p".to_string(), quality.to_string(),
             ],
-            // QSV: Veryslow for best quality
-            HwEncoder::QsvHevc => vec!["-preset".to_string(), "veryslow".to_string(), "-global_quality".to_string(), quality.to_string()],
-            // Software: Best quality settings
+            HwEncoder::QsvHevc => vec!["-preset".to_string(), "veryslow".to_string(), "-global_quality".to_string(), quality.to_string(), "-look_ahead".to_string(), "1".to_string()],
             HwEncoder::Software => vec!["-crf".to_string(), quality.to_string(), "-preset".to_string(), "medium".to_string()],
         }
     }
 }
 
 /// FFmpeg video encoder with async writing
-///
 /// Takes raw BGRA frame data and encodes it to H.265 video.
 /// Uses a background thread for writing to prevent blocking the render loop.
 /// Maximum number of frames to buffer before blocking
@@ -133,7 +123,9 @@ fn test_encoder(ffmpeg_path: &Path, encoder: HwEncoder) -> bool {
     cmd.arg("-f")
         .arg("lavfi")
         .arg("-i")
-        .arg("nullsrc=s=1280x720:d=0.1");
+        .arg("nullsrc=s=1280x720:d=1")
+        .arg("-frames:v")
+        .arg("1");
 
     // Add format conversion args for the test
     for arg in encoder.format_args() {
@@ -157,15 +149,6 @@ fn test_encoder(ffmpeg_path: &Path, encoder: HwEncoder) -> bool {
 }
 
 impl FFmpegEncoder {
-    /// Create a new FFmpeg encoder process
-    ///
-    /// # Arguments
-    /// * `ffmpeg_path` - Path to ffmpeg.exe
-    /// * `output_path` - Output video file path
-    /// * `width` - Video width in pixels
-    /// * `height` - Video height in pixels
-    /// * `fps` - Frames per second
-    /// * `quality` - Quality level (CRF/CQ), lower is better
     pub fn new(
         ffmpeg_path: &Path,
         output_path: &Path,
@@ -199,11 +182,13 @@ impl FFmpegEncoder {
 
         // 4. Codec & Output
         cmd.args(["-c:v", encoder.codec_name()]);
-        for arg in encoder.quality_args(quality) {
+        for arg in encoder.quality_args(quality, fps) {
             cmd.arg(arg);
         }
 
         cmd.arg("-y")
+            .arg("-movflags")
+            .arg("+faststart")
             .arg(output_path.to_str().unwrap_or("output.mp4"))
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -305,6 +290,13 @@ fn writer_thread_fn(
     recycle_sender: Sender<Vec<u8>>,
 ) -> std::io::Result<()> {
     let mut stdin = process.stdin.take();
+
+    if stdin.is_none() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to open stdin for FFmpeg process",
+        ));
+    }
 
     loop {
         match receiver.recv() {

@@ -1,9 +1,95 @@
 use super::text_renderer;
-use super::utils::{draw_solid_rect_alpha, lerp_u8};
+use super::utils::draw_solid_rect_alpha;
 use crate::gui::window::stats::GuiMidiStats;
 use crate::midi::MIDIFile;
 use crate::settings::{Statistics, WasabiSettings};
 use crate::utils::convert_seconds_to_time_string;
+
+/// Cached formatted data for the statistics panel to avoid re-formatting every frame
+pub struct OverlayCache {
+    // Cached raw statistics values
+    cached_time_passed: f64,
+    cached_midi_len: f64,
+    cached_passed_notes: u64,
+    cached_total_notes: u64,
+    cached_notes_on_screen: u64,
+    cached_nps: u64,
+    cached_polyphony: Option<u64>,
+    
+    // Cached formatted strings
+    cached_lines: Vec<String>,
+    
+    // Last settings state
+    last_order: Vec<(Statistics, bool)>,
+}
+
+impl OverlayCache {
+    pub fn new() -> Self {
+        Self {
+            cached_time_passed: -1.0,
+            cached_midi_len: -1.0,
+            cached_passed_notes: 0,
+            cached_total_notes: 0,
+            cached_notes_on_screen: 0,
+            cached_nps: 0,
+            cached_polyphony: None,
+            cached_lines: Vec::new(),
+            last_order: Vec::new(),
+        }
+    }
+    
+    /// Check if re-formatting is needed
+    fn needs_update(
+        &self,
+        time_passed: f64,
+        midi_len: f64,
+        passed_notes: u64,
+        total_notes: u64,
+        notes_on_screen: u64,
+        nps: u64,
+        polyphony: Option<u64>,
+        order: &[(Statistics, bool)],
+    ) -> bool {
+        // Check if order changed
+        if self.last_order != order {
+            return true;
+        }
+        
+        // Check if statistics values changed (Use smaller threshold for time)
+        (self.cached_time_passed - time_passed).abs() > 0.01
+            || (self.cached_midi_len - midi_len).abs() > 0.01
+            || self.cached_passed_notes != passed_notes
+            || self.cached_total_notes != total_notes
+            || self.cached_notes_on_screen != notes_on_screen
+            || self.cached_nps != nps
+            || self.cached_polyphony != polyphony
+    }
+    
+    /// Update cache
+    fn update(
+        &mut self,
+        time_passed: f64,
+        midi_len: f64,
+        passed_notes: u64,
+        total_notes: u64,
+        notes_on_screen: u64,
+        nps: u64,
+        polyphony: Option<u64>,
+        lines: Vec<String>,
+        order: Vec<(Statistics, bool)>,
+    ) {
+        self.cached_time_passed = time_passed;
+        self.cached_midi_len = midi_len;
+        self.cached_passed_notes = passed_notes;
+        self.cached_total_notes = total_notes;
+        self.cached_notes_on_screen = notes_on_screen;
+        self.cached_nps = nps;
+        self.cached_polyphony = polyphony;
+        self.cached_lines = lines;
+        self.last_order = order;
+    }
+}
+
 
 /// Draw the overlay statistics
 pub fn draw_overlay(
@@ -15,6 +101,7 @@ pub fn draw_overlay(
     stats: &GuiMidiStats,
     nps: u64,
     settings: &WasabiSettings,
+    cache: &mut OverlayCache,
 ) {
     let opacity = settings.scene.statistics.opacity.clamp(0.0, 1.0);
     let alpha = (255.0 * opacity).round() as u8;
@@ -31,68 +118,101 @@ pub fn draw_overlay(
     let x = pad;
     let y = panel_height + pad;
 
-    // Collect lines to render
-    let mut lines = Vec::new();
-
     let midi_len = midi_file.midi_length().unwrap_or(0.0);
     let time_passed = current_time.min(midi_len).max(0.0);
     let note_stats = midi_file.stats();
+    
+    let passed_notes = note_stats.passed_notes.unwrap_or(0);
+    let total_notes = note_stats.total_notes.unwrap_or(0);
+    let notes_on_screen = stats.notes_on_screen;
+    let polyphony = stats.polyphony;
 
-    // Filter order
-    for (stat_type, enabled) in settings.scene.statistics.order.iter() {
-        if !enabled {
-            continue;
-        }
+    // Check if cache needs update
+    let needs_update = cache.needs_update(
+        time_passed,
+        midi_len,
+        passed_notes,
+        total_notes,
+        notes_on_screen,
+        nps,
+        polyphony,
+        &settings.scene.statistics.order,
+    );
 
-        match stat_type {
-            Statistics::Time => {
-                lines.push(format!(
-                    "Time: {} / {}",
-                    convert_seconds_to_time_string(time_passed),
-                    convert_seconds_to_time_string(midi_len)
-                ));
+    if needs_update {
+        // Re-formatting needed
+        let mut new_lines = Vec::new();
+
+        // Filter order
+        for (stat_type, enabled) in settings.scene.statistics.order.iter() {
+            if !enabled {
+                continue;
             }
-            Statistics::Fps | Statistics::VoiceCount => {
-                // Skip in video render
-            }
-            Statistics::Rendered => {
-                lines.push(format!(
-                    "Rendered: {}",
-                    numfmt_format(stats.notes_on_screen)
-                ));
-            }
-            Statistics::NoteCount => {
-                let passed = note_stats.passed_notes.unwrap_or(0);
-                let total = note_stats.total_notes.unwrap_or(0);
-                lines.push(format!(
-                    "{} / {}",
-                    numfmt_format(passed),
-                    numfmt_format(total)
-                ));
-            }
-            Statistics::Nps => {
-                lines.push(format!("NPS: {}", numfmt_format(nps)));
-            }
-            Statistics::Polyphony => {
-                if let Some(poly) = stats.polyphony {
-                    lines.push(format!("Polyphony: {}", numfmt_format(poly)));
+
+            match stat_type {
+                Statistics::Time => {
+                    new_lines.push(format!(
+                        "Time: {} / {}",
+                        convert_seconds_to_time_string(time_passed),
+                        convert_seconds_to_time_string(midi_len)
+                    ));
+                }
+                Statistics::Fps | Statistics::VoiceCount => {
+                    // Skip in video render
+                }
+                Statistics::Rendered => {
+                    new_lines.push(format!(
+                        "Rendered: {}",
+                        numfmt_format(notes_on_screen)
+                    ));
+                }
+                Statistics::NoteCount => {
+                    new_lines.push(format!(
+                        "{} / {}",
+                        numfmt_format(passed_notes),
+                        numfmt_format(total_notes)
+                    ));
+                }
+                Statistics::Nps => {
+                    new_lines.push(format!("NPS: {}", numfmt_format(nps)));
+                }
+                Statistics::Polyphony => {
+                    if let Some(poly) = polyphony {
+                        new_lines.push(format!("Polyphony: {}", numfmt_format(poly)));
+                    }
                 }
             }
         }
+        
+        // Update cache
+        cache.update(
+            time_passed,
+            midi_len,
+            passed_notes,
+            total_notes,
+            notes_on_screen,
+            nps,
+            polyphony,
+            new_lines,
+            settings.scene.statistics.order.clone(),
+        );
     }
+
+    // Use cached lines directly (no cloning)
+    let lines = &cache.cached_lines;
 
     if lines.is_empty() {
         return;
     }
 
     // Calculate content height and width
-    let font_size = 18.0 * scale;
-    let line_height = font_size as i32 + (4.0 * scale) as i32;
-    let spacing = (6.0 * scale) as i32;
+    let font_size = 16.0 * scale;
+    let line_height = font_size as i32;
+    let spacing = (3.0 * scale) as i32;
 
     // Measure max width
     let mut max_text_width = 0;
-    for line in &lines {
+    for line in lines {
         let w = text_renderer::measure_text_width_ttf(line, font_size);
         if w > max_text_width {
             max_text_width = w;
@@ -283,10 +403,9 @@ fn draw_rounded_rect(
             if inside {
                 let idx = ((py as u32 * width + px as u32) * 4) as usize;
                 if idx + 3 < buffer.len() {
-                    let a = alpha as f32 / 255.0;
-                    buffer[idx] = lerp_u8(buffer[idx], color.2, a);
-                    buffer[idx + 1] = lerp_u8(buffer[idx + 1], color.1, a);
-                    buffer[idx + 2] = lerp_u8(buffer[idx + 2], color.0, a);
+                    buffer[idx] = super::utils::blend_alpha_int(buffer[idx], color.2, alpha);
+                    buffer[idx + 1] = super::utils::blend_alpha_int(buffer[idx + 1], color.1, alpha);
+                    buffer[idx + 2] = super::utils::blend_alpha_int(buffer[idx + 2], color.0, alpha);
                 }
             }
         }
@@ -368,8 +487,6 @@ fn draw_rounded_rect_border(
         (right - radius, bottom - radius, 1, 1), // Bottom-right
     ];
 
-    let a_f32 = alpha as f32 / 255.0;
-
     for (cx, cy, _, _) in corners {
         let min_px = (cx - radius).max(0);
         let max_px = (cx + radius).min(width as i32);
@@ -390,9 +507,9 @@ fn draw_rounded_rect_border(
                     if is_in_quadrant {
                         let idx = ((py as u32 * width + px as u32) * 4) as usize;
                         if idx + 3 < buffer.len() {
-                            buffer[idx] = lerp_u8(buffer[idx], color.2, a_f32);
-                            buffer[idx + 1] = lerp_u8(buffer[idx + 1], color.1, a_f32);
-                            buffer[idx + 2] = lerp_u8(buffer[idx + 2], color.0, a_f32);
+                            buffer[idx] = super::utils::blend_alpha_int(buffer[idx], color.2, alpha);
+                            buffer[idx + 1] = super::utils::blend_alpha_int(buffer[idx + 1], color.1, alpha);
+                            buffer[idx + 2] = super::utils::blend_alpha_int(buffer[idx + 2], color.0, alpha);
                         }
                     }
                 }

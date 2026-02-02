@@ -30,6 +30,19 @@ use crate::gui::window::scene::note_list_system::NoteRenderer;
 use crate::midi::MIDIFile;
 use crate::settings::WasabiSettings;
 
+// Black key lookup table for efficient key type checking
+// Pattern: C C# D D# E F F# G G# A A# B
+const BLACK_KEY_PATTERN: [bool; 12] = [
+    false, true, false, true, false,  // C, C#, D, D#, E
+    false, true, false, true, false, true, false,  // F, F#, G, G#, A, A#, B
+];
+
+/// Check if a MIDI key is black (inline for performance)
+#[inline(always)]
+fn is_black_key(key: usize) -> bool {
+    BLACK_KEY_PATTERN[key % 12]
+}
+
 /// Offscreen renderer for generating video frames
 pub struct OffscreenRenderer {
     device: Arc<Device>,
@@ -55,6 +68,8 @@ pub struct OffscreenRenderer {
     // Keyboard Cache
     static_keyboard_buffer: Vec<u8>,
     last_cache_params: Option<(usize, usize, u32, u32, [u8; 4])>, // start_key, end_key, width, height, bar_color
+    // Overlay Cache
+    overlay_cache: super::overlay_renderer::OverlayCache,
 }
 
 impl OffscreenRenderer {
@@ -180,6 +195,7 @@ impl OffscreenRenderer {
             nps_history: VecDeque::new(),
             static_keyboard_buffer: Vec::new(),
             last_cache_params: None,
+            overlay_cache: super::overlay_renderer::OverlayCache::new(),
         })
     }
 
@@ -217,12 +233,6 @@ impl OffscreenRenderer {
             // Resize buffer to fit ONLY the keyboard area
             if self.static_keyboard_buffer.len() != keyboard_buffer_size {
                 self.static_keyboard_buffer.resize(keyboard_buffer_size, 0);
-            } else {
-                // If capacity matches, we still need to clear it because we rely on transparency?
-                // Or opaque overwrite?
-                // render_static_keyboard overwrites its area.
-                // But let's be safe and fast-clear (std::intrinsics::write_bytes)
-                self.static_keyboard_buffer.fill(0);
             }
 
             // Render static keyboard to cache.
@@ -332,23 +342,17 @@ impl OffscreenRenderer {
         // We only redraw black keys if they are pressed OR if a neighbor white key is pressed
         let mut dirty_keys = HashSet::new();
 
-        // Helper to check if a key is black (Standard 12-tone cycle)
-        let is_black = |i: usize| match i % 12 {
-            1 | 3 | 6 | 8 | 10 => true,
-            _ => false,
-        };
-
         for (i, color) in result.key_colors.iter().enumerate() {
             if color.is_some() {
-                if is_black(i) {
+                if is_black_key(i) {
                     dirty_keys.insert(i);
                 } else {
                     // White key pressed: mark neighbors if they are black
-                    if i > 0 && is_black(i - 1) {
+                    if i > 0 && is_black_key(i - 1) {
                         dirty_keys.insert(i - 1);
                     }
                     // Note: keys_len is usually 128, but strictly we check i < 127
-                    if i < 127 && is_black(i + 1) {
+                    if i < 127 && is_black_key(i + 1) {
                         dirty_keys.insert(i + 1);
                     }
                 }
@@ -411,6 +415,7 @@ impl OffscreenRenderer {
             &stats,
             nps,
             settings,
+            &mut self.overlay_cache,
         );
 
         Ok(())

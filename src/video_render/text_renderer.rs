@@ -55,6 +55,13 @@ pub fn draw_text_ttf(
 
     let glyphs: Vec<_> = font.layout(text, scale, offset).collect();
 
+    // Get text width - Retrieve from existing glyphs to avoid repeated layout
+    let end_x = glyphs
+        .last()
+        .and_then(|g| g.pixel_bounding_box())
+        .map(|bb| bb.max.x)
+        .unwrap_or(x);
+
     for glyph in glyphs {
         if let Some(bounding_box) = glyph.pixel_bounding_box() {
             glyph.draw(|gx, gy, v| {
@@ -76,6 +83,6 @@ pub fn draw_text_ttf(
             });
         }
     }
-    // Return approximate end x
-    measure_text_width_ttf(text, size) + x
+    
+    end_x
 }
