@@ -222,48 +222,61 @@ impl GuiWasabiWindow {
 
         ui.heading("Video Settings");
         ui.add_space(5.0);
-        egui::Grid::new("render_settings_grid")
-            .num_columns(4) // Label, Combo, Label, Combo
-            .spacing([10.0, 8.0])
-            .show(ui, |ui| {
-                ui.label("Resolution:");
-                ComboBox::from_id_salt("resolution_combo")
-                    .selected_text(state.render_state.resolution.label())
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut state.render_state.resolution,
-                            RenderResolution::HD1080,
-                            RenderResolution::HD1080.label(),
-                        );
-                        ui.selectable_value(
-                            &mut state.render_state.resolution,
-                            RenderResolution::UHD4K,
-                            RenderResolution::UHD4K.label(),
-                        );
-                    });
+        
+        ui.horizontal(|ui| {
+            // Resolution
+            ui.label("Resolution:");
+            ComboBox::from_id_salt("resolution_combo")
+                .selected_text(state.render_state.resolution.label())
+                .width(100.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut state.render_state.resolution,
+                        RenderResolution::HD1080,
+                        RenderResolution::HD1080.label(),
+                    );
+                    ui.selectable_value(
+                        &mut state.render_state.resolution,
+                        RenderResolution::UHD4K,
+                        RenderResolution::UHD4K.label(),
+                    );
+                });
 
-                ui.label("Frame Rate:");
-                ComboBox::from_id_salt("framerate_combo")
-                    .selected_text(state.render_state.frame_rate.label())
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut state.render_state.frame_rate,
-                            RenderFrameRate::Fps30,
-                            RenderFrameRate::Fps30.label(),
-                        );
-                        ui.selectable_value(
-                            &mut state.render_state.frame_rate,
-                            RenderFrameRate::Fps60,
-                            RenderFrameRate::Fps60.label(),
-                        );
-                        ui.selectable_value(
-                            &mut state.render_state.frame_rate,
-                            RenderFrameRate::Fps120,
-                            RenderFrameRate::Fps120.label(),
-                        );
-                    });
-                ui.end_row();
-            });
+            ui.add_space(8.0);
+
+            // Frame Rate
+            ui.label("FPS:");
+            ComboBox::from_id_salt("framerate_combo")
+                .selected_text(state.render_state.frame_rate.label())
+                .width(80.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut state.render_state.frame_rate,
+                        RenderFrameRate::Fps30,
+                        RenderFrameRate::Fps30.label(),
+                    );
+                    ui.selectable_value(
+                        &mut state.render_state.frame_rate,
+                        RenderFrameRate::Fps60,
+                        RenderFrameRate::Fps60.label(),
+                    );
+                    ui.selectable_value(
+                        &mut state.render_state.frame_rate,
+                        RenderFrameRate::Fps120,
+                        RenderFrameRate::Fps120.label(),
+                    );
+                });
+
+            ui.add_space(8.0);
+
+            // Quality
+            ui.label("Quality:");
+            ui.add(
+                egui::DragValue::new(&mut state.render_state.quality)
+                    .range(1..=51)
+                    .speed(0.1),
+            );
+        });
 
         ui.add_space(5.0);
         ui.label(
@@ -303,6 +316,7 @@ impl GuiWasabiWindow {
                         state.render_state.output_path.clone().unwrap(),
                         state.render_state.resolution,
                         state.render_state.frame_rate,
+                        state.render_state.quality,
                         settings.clone(),
                     );
 
