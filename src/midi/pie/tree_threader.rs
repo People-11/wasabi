@@ -2,12 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
-use super::{intvec4::IntVector4, tree_serializer::TreeSerializer};
+use super::tree_serializer::TreeSerializer;
 
-pub struct MidiData {
-    pub vec: Vec<IntVector4>,
-    pub time: i32,
-}
+
 
 pub enum NoteEvent {
     On {
@@ -105,7 +102,7 @@ impl ThreadedTreeSerializers {
         }
     }
 
-    pub fn seal(self, time: i32) -> Vec<Vec<IntVector4>> {
+    pub fn seal(self, time: i32) -> Vec<Vec<i32>> {
         self.snd.send(self.current_vec).unwrap();
         drop(self.snd);
 

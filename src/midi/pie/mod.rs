@@ -16,7 +16,10 @@ use crate::{
     gui::window::WasabiError,
     midi::{
         audio::ram::InRamAudioPlayer,
-        cake::tree_threader::{NoteEvent, ThreadedTreeSerializers},
+        pie::{
+            tree_threader::{NoteEvent, ThreadedTreeSerializers},
+            blocks::FlatPieBlocks,
+        },
         open_file_and_signature,
         shared::{audio::{FlatAudio, RawAudioBlock}, timer::TimeKeeper},
         MIDIColor,
@@ -24,19 +27,17 @@ use crate::{
     settings::MidiSettings,
 };
 
-pub use self::blocks::CakeBlock;
-pub use self::intvec4::IntVector4;
-
 use super::{MIDIFileBase, MIDIFileStats, MIDIFileUniqueSignature};
 
 pub mod blocks;
-pub mod intvec4;
 mod tree_serializer;
 mod tree_threader;
 mod unended_note_batch;
 
-pub struct CakeMIDIFile {
-    blocks: Vec<CakeBlock>,
+pub struct PieMIDIFile {
+    blocks: FlatPieBlocks,
+    #[allow(dead_code)]
+    audio: Arc<FlatAudio>,
     timer: TimeKeeper,
     length: f64,
     note_count: u64,
@@ -44,7 +45,7 @@ pub struct CakeMIDIFile {
     signature: MIDIFileUniqueSignature,
 }
 
-impl CakeMIDIFile {
+impl PieMIDIFile {
     pub fn load_from_file(
         path: impl Into<PathBuf>,
         player: Arc<WasabiAudioPlayer>,
@@ -82,9 +83,9 @@ impl CakeMIDIFile {
 
                 let int_time = (time * ticks_per_second as f64) as i32;
 
-                fn channel_track(channel: u8, track: u32) -> i32 {
+                let channel_track = |channel: u8, track: u32| -> i32 {
                     (channel as i32) + (track as i32) * 16
-                }
+                };
 
                 for event in batch.iter_events() {
                     let track = event.track;
@@ -121,22 +122,15 @@ impl CakeMIDIFile {
             let final_time = (time * ticks_per_second as f64) as i32;
             let serialized = trees.seal(final_time);
 
-            let keys: Vec<_> = serialized
-                .into_iter()
-                .map(|s| CakeBlock {
-                    start_time: 0,
-                    end_time: final_time as u32,
-                    tree: s,
-                })
-                .collect();
+            let blocks = FlatPieBlocks::build_blocks(serialized, 0, final_time as u32);
 
-            (keys, note_count)
+            (blocks, note_count)
         });
 
         let audio_join_handle = thread::spawn(move || {
-            let raw_blocks_iter = RawAudioBlock::build_raw_blocks(audio_rcv.into_iter());
-            FlatAudio::build_blocks(raw_blocks_iter)
-        });
+    let raw_blocks_iter = RawAudioBlock::build_raw_blocks(audio_rcv.into_iter());
+    FlatAudio::build_blocks(raw_blocks_iter)
+});
 
         let mut length = 0.0;
 
@@ -151,15 +145,16 @@ impl CakeMIDIFile {
         drop(key_snd);
         drop(audio_snd);
 
-        let (keys, note_count) = key_join_handle.join().unwrap();
+        let (blocks, note_count) = key_join_handle.join().unwrap();
         let audio = Arc::new(audio_join_handle.join().unwrap());
 
         let mut timer = TimeKeeper::new(settings.start_delay);
 
-        InRamAudioPlayer::new(audio, timer.get_listener(), player).spawn_playback();
+        InRamAudioPlayer::new(audio.clone(), timer.get_listener(), player).spawn_playback();
 
-        Ok(CakeMIDIFile {
-            blocks: keys,
+        Ok(PieMIDIFile {
+            blocks,
+            audio,
             timer,
             length,
             note_count,
@@ -168,8 +163,13 @@ impl CakeMIDIFile {
         })
     }
 
-    pub fn key_blocks(&self) -> &[CakeBlock] {
+    pub fn flat_blocks(&self) -> &FlatPieBlocks {
         &self.blocks
+    }
+
+    #[allow(dead_code)]
+    pub fn audio(&self) -> &Arc<FlatAudio> {
+        &self.audio
     }
 
     pub fn ticks_per_second(&self) -> u32 {
@@ -180,11 +180,13 @@ impl CakeMIDIFile {
         self.timer.get_time()
     }
 
-    pub fn cake_signature(&self) -> CakeSignature {
-        CakeSignature {
+    pub fn cake_signature(&self) -> PieSignature {
+        PieSignature {
             file_signature: self.signature.clone(),
             note_count: self.note_count,
-            buffer_sizes: self.blocks.iter().map(|b| b.tree.len()).collect(),
+            buffer_sizes: (0..self.blocks.len())
+                .map(|i| self.blocks.tree_len(i))
+                .collect(),
         }
     }
 }
@@ -192,13 +194,13 @@ impl CakeMIDIFile {
 /// A struct that uniquely identifies a cake midi file.
 /// This lets the renderer know if the file has changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CakeSignature {
+pub struct PieSignature {
     file_signature: MIDIFileUniqueSignature,
     note_count: u64,
     buffer_sizes: Vec<usize>,
 }
 
-impl MIDIFileBase for CakeMIDIFile {
+impl MIDIFileBase for PieMIDIFile {
     fn midi_length(&self) -> Option<f64> {
         Some(self.length)
     }
@@ -219,14 +221,14 @@ impl MIDIFileBase for CakeMIDIFile {
         true
     }
 
+
+
     fn stats(&self) -> MIDIFileStats {
         let time = self.timer.get_time().as_seconds_f64();
         let time_int = (time * self.ticks_per_second as f64) as i32;
 
-        let passed_notes = self
-            .key_blocks()
-            .iter()
-            .map(|b| b.get_notes_passed_at(time_int) as u64)
+        let passed_notes = (0..self.blocks.len())
+            .map(|key| self.blocks.get_notes_passed_at(key, time_int) as u64)
             .sum();
 
         MIDIFileStats {

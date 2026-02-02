@@ -30,6 +30,11 @@ impl SettingsWindow {
                     ui.label("MIDI Parsing Algorithm:");
                     ui.monospace("\u{2139}").on_hover_text(
                         "\
+                    - Pie\n\
+                  \0    Modified version of Cake.\n\
+                  \0    Flattened tree structure, uses a linear memory layout.\n\
+                  \0    May offer faster loading speeds and reduced RAM usage\n\
+                  \0    but might lag when randomly accessing MIDI.\n\
                     - Cake\n\
                   \0    The most efficient loading and displaying algorithm.\n\
                   \0    The notes will be stored in binary trees and will be\n\
@@ -51,6 +56,11 @@ impl SettingsWindow {
                             &mut settings.midi.parsing,
                             MidiParsing::Cake,
                             MidiParsing::Cake.as_str(),
+                        );
+                        ui.selectable_value(
+                            &mut settings.midi.parsing,
+                            MidiParsing::Pie,
+                            MidiParsing::Pie.as_str(),
                         );
                         ui.selectable_value(
                             &mut settings.midi.parsing,

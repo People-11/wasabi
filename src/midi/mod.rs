@@ -17,7 +17,11 @@ use rand::seq::IteratorRandom;
 use rand::Rng;
 
 pub use cake::{
-    CakeMIDIFile, CakeSignature,
+    CakeBlock, CakeMIDIFile, CakeSignature, IntVector4,
+};
+pub mod pie;
+pub use pie::{
+    PieMIDIFile, PieSignature,
 };
 pub use live::LiveLoadMIDIFile;
 pub use ram::InRamMIDIFile;
@@ -269,4 +273,5 @@ pub enum MIDIFileUnion {
     InRam(ram::InRamMIDIFile),
     Live(live::LiveLoadMIDIFile),
     Cake(cake::CakeMIDIFile),
+    Pie(pie::PieMIDIFile),
 }

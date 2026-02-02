@@ -12,8 +12,8 @@ use vulkano::{
         allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo},
         DescriptorSet, WriteDescriptorSet,
     },
-    device::{Device, Queue},
-    format::Format,
+    device::Queue,
+    format::{ClearValue, Format},
     image::{view::ImageView, Image, ImageCreateInfo, ImageUsage},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{
@@ -37,29 +37,17 @@ use vulkano::{
 
 use crate::{
     gui::{
-        window::keyboard_layout::{KeyPosition, KeyboardView},
+        window::keyboard_layout::KeyboardView,
         GuiRenderer,
     },
-    midi::{CakeBlock, CakeMIDIFile, CakeSignature, IntVector4},
+    midi::{PieMIDIFile, PieSignature},
 };
 
 use super::RenderResultData;
 
-const BUFFER_ARRAY_LEN: u64 = 256;
-
-struct CakeBuffer {
-    data: Subbuffer<[IntVector4]>,
-    start: i32,
-    end: i32,
-}
-
-struct BufferSet {
-    buffers: Vec<CakeBuffer>,
-}
-
 #[derive(Default, Debug, Copy, Clone, Zeroable, Pod, Vertex)]
 #[repr(C)]
-struct CakeNoteColumn {
+struct PieNoteColumn {
     #[format(R32_SFLOAT)]
     left: f32,
     #[format(R32_SFLOAT)]
@@ -69,65 +57,34 @@ struct CakeNoteColumn {
     #[format(R32_SINT)]
     end: i32,
     #[format(R32_SINT)]
-    buffer_index: i32,
+    tree_offset: i32,
     #[format(R32_SINT)]
     border_width: i32,
 }
 
-impl BufferSet {
-    fn new(_device: &Arc<Device>) -> Self {
-        Self { buffers: vec![] }
-    }
-
-    fn add_buffer(
-        &mut self,
-        allocator: Arc<StandardMemoryAllocator>,
-        block: &CakeBlock,
-        _key: &KeyPosition,
-    ) {
-        let data = Buffer::from_iter(
-            allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::STORAGE_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            block.tree.iter().copied(),
-        )
-        .unwrap();
-
-        let buffer = CakeBuffer {
-            data,
-            start: block.start_time as i32,
-            end: block.end_time as i32,
-        };
-
-        self.buffers.push(buffer);
-    }
-
-    fn clear(&mut self) {
-        self.buffers.clear();
-    }
+struct PieBatch {
+    buffer: Subbuffer<[i32]>,
+    start_key: usize,
+    end_key: usize,
+    base_offset: usize,
 }
 
-pub struct CakeRenderer {
+
+
+pub struct PieRenderer {
     gfx_queue: Arc<Queue>,
-    buffers: BufferSet,
+    batches: Vec<PieBatch>,
     pipeline_clear: Arc<GraphicsPipeline>,
     render_pass_clear: Arc<RenderPass>,
     allocator: Arc<StandardMemoryAllocator>,
     depth_buffer: Arc<ImageView>,
     cb_allocator: Arc<StandardCommandBufferAllocator>,
     sd_allocator: Arc<StandardDescriptorSetAllocator>,
-    buffers_init: Subbuffer<[CakeNoteColumn]>,
-    current_file_signature: Option<CakeSignature>,
+    current_file_signature: Option<PieSignature>,
 }
 
-impl CakeRenderer {
-    pub fn new(renderer: &GuiRenderer) -> CakeRenderer {
+impl PieRenderer {
+    pub fn new(renderer: &GuiRenderer) -> PieRenderer {
         let allocator = Arc::new(StandardMemoryAllocator::new_default(
             renderer.device.clone(),
         ));
@@ -187,7 +144,7 @@ impl CakeRenderer {
             .entry_point("main")
             .unwrap();
 
-        let vertex_input_state = CakeNoteColumn::per_vertex().definition(&vs).unwrap();
+        let vertex_input_state = PieNoteColumn::per_vertex().definition(&vs).unwrap();
         let stages = [
             PipelineShaderStageCreateInfo::new(vs),
             PipelineShaderStageCreateInfo::new(fs),
@@ -230,23 +187,11 @@ impl CakeRenderer {
         )
         .unwrap();
 
-        let buffers = Buffer::new_slice(
-            allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::VERTEX_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            BUFFER_ARRAY_LEN,
-        )
-        .unwrap();
 
-        CakeRenderer {
+
+        PieRenderer {
             gfx_queue,
-            buffers: BufferSet::new(&renderer.device),
+            batches: vec![],
             pipeline_clear,
             render_pass_clear,
             depth_buffer,
@@ -261,7 +206,6 @@ impl CakeRenderer {
                 StandardDescriptorSetAllocatorCreateInfo::default(),
             )
             .into(),
-            buffers_init: buffers,
             current_file_signature: None,
         }
     }
@@ -270,7 +214,7 @@ impl CakeRenderer {
         &mut self,
         key_view: &KeyboardView,
         final_image: Arc<ImageView>,
-        midi_file: &mut CakeMIDIFile,
+        midi_file: &mut PieMIDIFile,
         view_range: f64,
     ) -> RenderResultData {
         let img_dims = final_image.image().extent();
@@ -294,10 +238,73 @@ impl CakeRenderer {
         let curr_signature = midi_file.cake_signature();
         if self.current_file_signature.as_ref() != Some(&curr_signature) {
             self.current_file_signature = Some(curr_signature);
-            self.buffers.clear();
-            for (i, block) in midi_file.key_blocks().iter().enumerate() {
-                let key = key_view.key(i);
-                self.buffers.add_buffer(self.allocator.clone(), block, &key);
+            self.batches.clear();
+            
+            let flat_blocks = midi_file.flat_blocks();
+            let mut current_batch_start = 0;
+            let mut current_batch_size = 0;
+            let mut current_start_offset = 0;
+            let target_batch_size = 128 * 1024 * 1024; // 128MB
+
+            for i in 0..flat_blocks.len() {
+                let info = flat_blocks.get_block_info(i);
+                // 4 bytes per int
+                let size_bytes = info.tree_len * 4;
+
+                if current_batch_size + size_bytes > target_batch_size && current_batch_size > 0 {
+                    // Flush batch
+                    let end_offset = info.tree_offset;
+                    let slice = &flat_blocks.tree_buffer[current_start_offset..end_offset];
+                    let buffer = Buffer::from_iter(
+                        self.allocator.clone(),
+                        BufferCreateInfo {
+                            usage: BufferUsage::STORAGE_BUFFER,
+                            ..Default::default()
+                        },
+                        AllocationCreateInfo {
+                            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                            ..Default::default()
+                        },
+                        slice.iter().copied(),
+                    ).unwrap();
+
+                    self.batches.push(PieBatch {
+                        buffer,
+                        start_key: current_batch_start,
+                        end_key: i,
+                        base_offset: current_start_offset,
+                    });
+
+                    current_batch_start = i;
+                    current_batch_size = 0;
+                    current_start_offset = end_offset;
+                }
+
+                current_batch_size += size_bytes;
+            }
+
+            // Flush final batch
+            if current_batch_start < flat_blocks.len() {
+                let slice = &flat_blocks.tree_buffer[current_start_offset..];
+                let buffer = Buffer::from_iter(
+                    self.allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    slice.iter().copied(),
+                ).unwrap();
+
+                self.batches.push(PieBatch {
+                    buffer,
+                    start_key: current_batch_start,
+                    end_key: flat_blocks.len(),
+                    base_offset: current_start_offset,
+                });
             }
         }
 
@@ -317,49 +324,11 @@ impl CakeRenderer {
             key_view.visible_range.len() as f32,
         ) as i32;
 
-        let mut buffer_instances = self.buffers_init.write().unwrap();
-        let mut written_instances = 0;
-        // Black keys first, as they stencil out in the depth buffer
-        for (i, buffer) in self.buffers.buffers.iter().enumerate() {
-            let key = key_view.note(i);
-            if key.black {
-                buffer_instances[written_instances] = CakeNoteColumn {
-                    buffer_index: i as i32,
-                    border_width,
-                    start: buffer.start,
-                    end: buffer.end,
-                    left: key.left,
-                    right: key.right,
-                };
-                written_instances += 1;
-            }
-        }
-        // White keys second
-        for (i, buffer) in self.buffers.buffers.iter().enumerate() {
-            let key = key_view.note(i);
-            if !key.black {
-                buffer_instances[written_instances] = CakeNoteColumn {
-                    buffer_index: i as i32,
-                    border_width,
-                    start: buffer.start,
-                    end: buffer.end,
-                    left: key.left,
-                    right: key.right,
-                };
-                written_instances += 1;
-            }
-        }
-        drop(buffer_instances);
-
-        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            self.cb_allocator.clone(),
-            self.gfx_queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-
         let (clears, pipeline, render_pass) = (
-            vec![Some([0.0, 0.0, 0.0, 0.0].into()), Some(1.0f32.into())],
+            vec![
+                Some(ClearValue::from([0.0f32, 0.0, 0.0, 0.0])),
+                Some(ClearValue::from(1.0f32)),
+            ],
             &self.pipeline_clear,
             &self.render_pass_clear,
         );
@@ -374,63 +343,118 @@ impl CakeRenderer {
         .unwrap();
 
         let pipeline_layout = pipeline.layout();
-
         let desc_layout = pipeline_layout.set_layouts().first().unwrap();
-        let data_descriptor = DescriptorSet::new(
-            self.sd_allocator.clone(),
-            desc_layout.clone(),
-            [WriteDescriptorSet::buffer_array(
-                0,
-                0,
-                self.buffers.buffers.iter().map(|b| b.data.clone()),
-            )],
-            [],
+
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            self.cb_allocator.clone(),
+            self.gfx_queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
-
-        let subpassbegininfo = SubpassBeginInfo {
-            contents: SubpassContents::Inline,
-            ..Default::default()
-        };
 
         command_buffer_builder
             .begin_render_pass(
                 RenderPassBeginInfo {
                     clear_values: clears,
-                    ..RenderPassBeginInfo::framebuffer(framebuffer)
+                    ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
                 },
-                subpassbegininfo,
+                SubpassBeginInfo {
+                    contents: SubpassContents::Inline,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .set_viewport(
+                0,
+                [Viewport {
+                    offset: [0.0, 0.0],
+                    extent: [img_dims[0] as f32, img_dims[1] as f32],
+                    depth_range: 0.0..=1.0,
+                }]
+                .into_iter()
+                .collect(),
+            )
+            .unwrap()
+            .bind_pipeline_graphics(self.pipeline_clear.clone())
+            .unwrap()
+            .push_constants(self.pipeline_clear.layout().clone(), 0, push_constants)
+            .unwrap();
+
+        let flat_blocks = midi_file.flat_blocks();
+
+        for batch in &self.batches {
+            let data_descriptor = DescriptorSet::new(
+                self.sd_allocator.clone(),
+                desc_layout.clone(),
+                [WriteDescriptorSet::buffer(0, batch.buffer.clone())],
+                [],
             )
             .unwrap();
 
-        unsafe {
-            command_buffer_builder
-                .bind_pipeline_graphics(pipeline.clone())
-                .unwrap()
-                .set_viewport(
-                    0,
-                    vec![Viewport {
-                        offset: [0.0, 0.0],
-                        extent: [img_dims[0] as f32, img_dims[1] as f32],
-                        depth_range: 0.0..=1.0,
-                    }]
-                    .into(),
+            command_buffer_builder.bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.pipeline_clear.layout().clone(),
+                0,
+                data_descriptor,
+            ).unwrap();
+
+            let mut batch_instances = Vec::new();
+            
+            // Black keys
+            for i in batch.start_key..batch.end_key {
+                let key = key_view.note(i);
+                if key.black {
+                    let info = flat_blocks.get_block_info(i);
+                    batch_instances.push(PieNoteColumn {
+                        tree_offset: (info.tree_offset - batch.base_offset) as i32,
+                        border_width,
+                        start: info.start_time as i32,
+                        end: info.end_time as i32,
+                        left: key.left,
+                        right: key.right,
+                    });
+                }
+            }
+            // White keys
+            for i in batch.start_key..batch.end_key {
+                let key = key_view.note(i);
+                if !key.black {
+                    let info = flat_blocks.get_block_info(i);
+                    batch_instances.push(PieNoteColumn {
+                        tree_offset: (info.tree_offset - batch.base_offset) as i32,
+                        border_width,
+                        start: info.start_time as i32,
+                        end: info.end_time as i32,
+                        left: key.left,
+                        right: key.right,
+                    });
+                }
+            }
+
+            if !batch_instances.is_empty() {
+                let instance_buffer = Buffer::from_iter(
+                    self.allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::VERTEX_BUFFER,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    batch_instances,
                 )
-                .unwrap()
-                .push_constants(pipeline_layout.clone(), 0, push_constants)
-                .unwrap()
-                .bind_descriptor_sets(
-                    PipelineBindPoint::Graphics,
-                    pipeline_layout.clone(),
-                    0,
-                    data_descriptor,
-                )
-                .unwrap()
-                .bind_vertex_buffers(0, self.buffers_init.clone())
-                .unwrap()
-                .draw(written_instances as u32, 1, 0, 0)
-                .unwrap()
-        };
+                .unwrap();
+
+                unsafe {
+                    command_buffer_builder
+                        .bind_vertex_buffers(0, instance_buffer.clone())
+                        .unwrap()
+                        .draw(instance_buffer.len() as u32, 1, 0, 0)
+                        .unwrap();
+                }
+            }
+        }
 
         command_buffer_builder
             .end_render_pass(Default::default())
@@ -445,19 +469,20 @@ impl CakeRenderer {
 
         // Calculate the metadata before awaiting the future
         // to keep this more efficient
-        let colors = midi_file
-            .key_blocks()
-            .iter()
-            .map(|block| block.get_note_at(screen_start as u32).map(|n| n.color))
+        let flat_blocks = midi_file.flat_blocks();
+        let colors = (0..flat_blocks.len())
+            .map(|key| {
+                flat_blocks
+                    .get_note_at(key, screen_start)
+                    .map(|n| n.color)
+            })
             .collect();
-        let rendered_notes = midi_file
-            .key_blocks()
-            .iter()
-            .map(|block| {
-                let passed =
-                    block.get_notes_passed_at(screen_end) - block.get_notes_passed_at(screen_start);
+        let rendered_notes = (0..flat_blocks.len())
+            .map(|key| {
+                let passed = flat_blocks.get_notes_passed_at(key, screen_end)
+                    - flat_blocks.get_notes_passed_at(key, screen_start);
 
-                if block.get_note_at(screen_start as u32).is_some() {
+                if flat_blocks.get_note_at(key, screen_start).is_some() {
                     passed as u64 + 1
                 } else {
                     passed as u64
@@ -482,20 +507,20 @@ impl CakeRenderer {
 mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "shaders/cake/cake.vert"
+        path: "shaders/pie/pie.vert"
     }
 }
 
 mod gs {
     vulkano_shaders::shader! {
         ty: "geometry",
-        path: "shaders/cake/cake.geom"
+        path: "shaders/pie/pie.geom"
     }
 }
 
 mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "shaders/cake/cake.frag"
+        path: "shaders/pie/pie.frag"
     }
 }

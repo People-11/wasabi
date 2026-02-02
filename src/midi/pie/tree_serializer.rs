@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use super::{intvec4::IntVector4, unended_note_batch::UnendedNotes};
+use super::unended_note_batch::UnendedNotes;
 
 enum TreeFrame {
     WaitingLeft {
@@ -16,7 +16,6 @@ enum TreeFrame {
 
 struct NoteMarker {
     start: i32,
-    track_channel: i32,
     color: i32,
     written_pos: Option<i32>,
 }
@@ -30,7 +29,7 @@ pub struct TreeSerializer {
     note_stack: UnendedNotes<i32, NoteMarker>,
     tree_frames: VecDeque<TreeFrame>,
 
-    written_values: Vec<IntVector4>,
+    written_values: Vec<i32>,
 
     added_notes: u32,
     last_tree_time: i32,
@@ -44,7 +43,7 @@ impl std::fmt::Debug for TreeSerializer {
 
 impl TreeSerializer {
     pub fn new() -> TreeSerializer {
-        let written_values = vec![IntVector4::new_empty()];
+        let written_values = vec![0, 0, -1, 0];
 
         TreeSerializer {
             note_stack: UnendedNotes::new(),
@@ -54,6 +53,33 @@ impl TreeSerializer {
 
             added_notes: 0,
             last_tree_time: 0,
+        }
+    }
+
+    #[inline(always)]
+    fn push3(vec: &mut Vec<i32>, a: i32, b: i32, c: i32) {
+        vec.reserve(3);
+        let len = vec.len();
+        let ptr = vec.as_mut_ptr();
+        unsafe {
+            ptr.add(len).write(a);
+            ptr.add(len + 1).write(b);
+            ptr.add(len + 2).write(c);
+            vec.set_len(len + 3);
+        }
+    }
+
+    #[inline(always)]
+    fn push4(vec: &mut Vec<i32>, a: i32, b: i32, c: i32, d: i32) {
+        vec.reserve(4);
+        let len = vec.len();
+        let ptr = vec.as_mut_ptr();
+        unsafe {
+            ptr.add(len).write(a);
+            ptr.add(len + 1).write(b);
+            ptr.add(len + 2).write(c);
+            ptr.add(len + 3).write(d);
+            vec.set_len(len + 4);
         }
     }
 
@@ -67,8 +93,7 @@ impl TreeSerializer {
                 Some(pos) => -pos,
                 None => {
                     let written_pos = self.written_values.len() as i32;
-                    self.written_values
-                        .push(IntVector4::new_note(marker.start, 0, marker.color));
+                    Self::push3(&mut self.written_values, marker.start, 0, marker.color);
                     marker.written_pos = Some(written_pos);
                     -written_pos
                 }
@@ -104,8 +129,7 @@ impl TreeSerializer {
         let left = diff(left_addr, written_pos);
         let right = diff(right_addr, written_pos);
 
-        self.written_values
-            .push(IntVector4::new_leaf(mid, left, right, notes_to_the_left));
+        Self::push4(&mut self.written_values, mid, left, right, notes_to_the_left as i32);
         written_pos
     }
 
@@ -122,7 +146,6 @@ impl TreeSerializer {
             track_channel,
             NoteMarker {
                 start: time,
-                track_channel,
                 color,
                 written_pos: None,
             },
@@ -155,22 +178,22 @@ impl TreeSerializer {
         }
 
         if let Some(index) = marker.value.written_pos {
-            self.written_values[index as usize].set_note_end(time);
+            self.written_values[index as usize + 1] = time;
         }
     }
 
     /// Ends all notes, finishes all stack frames, inserts the address of the last item into the start of the array,
     /// and returns the array.
-    pub fn complete_and_seal(mut self, time: i32) -> Vec<IntVector4> {
+    pub fn complete_and_seal(mut self, time: i32) -> Vec<i32> {
         self.end_all_notes(time);
         self.end_all_frames();
 
-        if self.written_values.len() == 1 {
+        if self.written_values.len() == 4 {
             self.write_leaf(0, 0, 0, 0);
         }
 
-        self.written_values
-            .insert(0, IntVector4::new_length_marker(self.written_values.len()));
+        let len = self.written_values.len();
+        self.written_values[0] = (len - 4) as i32;
 
         self.written_values
     }
@@ -290,7 +313,7 @@ impl TreeSerializer {
         self.process_change(time);
         for marker in self.note_stack.drain_all() {
             if let Some(index) = marker.written_pos {
-                self.written_values[index as usize].set_note_end(time);
+                self.written_values[index as usize + 1] = time;
             }
         }
     }

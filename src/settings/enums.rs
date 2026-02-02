@@ -10,6 +10,7 @@ pub enum MidiParsing {
     Ram = 0,
     Live = 1,
     Cake = 2,
+    Pie = 3,
 }
 
 impl MidiParsing {
@@ -18,6 +19,7 @@ impl MidiParsing {
             MidiParsing::Ram => "Standard (RAM)",
             MidiParsing::Live => "Standard (Live)",
             MidiParsing::Cake => "Cake",
+            MidiParsing::Pie => "Pie",
         }
     }
 }
@@ -30,6 +32,7 @@ impl FromStr for MidiParsing {
             "ram" => Ok(MidiParsing::Ram),
             "live" => Ok(MidiParsing::Live),
             "cake" => Ok(MidiParsing::Cake),
+            "pie" => Ok(MidiParsing::Pie),
             s => Err(format!(
                 "{} was not expected. Expected one of `ram`, `live` or `cake`",
                 s
