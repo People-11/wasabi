@@ -21,12 +21,8 @@ void main() {
     float horiz_width_pixels = v_note_size.x / 2 * win_size.x;
     float vert_width_pixels = v_note_size.y / 2 * win_size.y;
 
-    // Limit margin to prevent tiny notes from being completely covered by border
-    // max_margin = 0.35 means border can take at most 70% (35% each side)
-    // leaving 30% in the middle for note color visibility
-    const float max_margin = 0.35;
-    float horiz_margin = min(1.0 / horiz_width_pixels * float(border_width), max_margin);
-    float vert_margin = min(1.0 / vert_width_pixels * float(border_width), max_margin);
+    float horiz_margin = 1 / horiz_width_pixels * border_width;
+    float vert_margin = 1 / vert_width_pixels * border_width;
 
     bool border =
         v_uv.x < horiz_margin ||
