@@ -102,7 +102,6 @@ impl GuiWasabiWindow {
                     } else {
                         false
                     };
-
                     if playing {
                         let pause_img =
                             egui::Image::new(egui::include_image!("../../../assets/pause.svg"))
