@@ -79,6 +79,15 @@ impl ApplicationHandler for WasabiApplication {
             // First process the redraw request
             if matches!(event, WindowEvent::RedrawRequested) {
                 renderer.render(&mut self.settings, &mut self.state);
+                // Use on-demand repainting during video rendering to save CPU
+                if self.state.render_state.is_rendering {
+                    if renderer.gui().context().has_requested_repaint() {
+                        event_loop.set_control_flow(ControlFlow::Poll);
+                        renderer.window().request_redraw();
+                    } else {
+                        event_loop.set_control_flow(ControlFlow::Wait);
+                    }
+                }
                 // Update VSYNC if changed during render
                 if self.settings.gui.vsync != self.current_vsync {
                     renderer.set_vsync(self.settings.gui.vsync);
@@ -110,10 +119,10 @@ impl ApplicationHandler for WasabiApplication {
                 WindowEvent::CloseRequested => {
                     event_loop.exit();
                 }
-                WindowEvent::DroppedFile(path) => {
+                WindowEvent::DroppedFile(ref path) => {
                     renderer
                         .gui_window()
-                        .load_midi(path, &mut self.settings, &self.state);
+                        .load_midi(path.clone(), &mut self.settings, &self.state);
                 }
                 _ => (),
             }

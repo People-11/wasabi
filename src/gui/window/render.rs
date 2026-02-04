@@ -322,13 +322,6 @@ impl GuiWasabiWindow {
 
                     state.render_state.progress.reset();
                     state.render_state.is_rendering = true;
-                    // Temporarily disable VSYNC for performance
-                    if state.render_state.original_vsync.is_none() {
-                        state.render_state.original_vsync = Some(settings.gui.vsync);
-                    }
-                    if settings.gui.vsync {
-                        settings.gui.vsync = false;
-                    }
 
                     let progress = super::render_state::RenderProgress {
                         current_frame: Arc::clone(&state.render_state.progress.current_frame),
@@ -348,10 +341,12 @@ impl GuiWasabiWindow {
     fn render_progress_ui(
         &mut self,
         ui: &mut egui::Ui,
-        settings: &mut WasabiSettings,
+        _settings: &mut WasabiSettings,
         state: &mut WasabiState,
     ) {
         ui.vertical_centered(|ui| {
+            // Request continuous repaints while rendering to update progress
+            ui.ctx().request_repaint();
             // Heading
             if state
                 .render_state
@@ -413,10 +408,6 @@ impl GuiWasabiWindow {
                 .load(std::sync::atomic::Ordering::Relaxed)
             {
                 state.render_state.is_rendering = false;
-                // Restore VSYNC
-                if let Some(original) = state.render_state.original_vsync.take() {
-                    settings.gui.vsync = original;
-                }
             }
 
             if ui.button("Cancel Render").clicked() {
@@ -426,10 +417,6 @@ impl GuiWasabiWindow {
                     .is_cancelled
                     .store(true, std::sync::atomic::Ordering::Relaxed);
                 state.render_state.is_rendering = false;
-                // Restore VSYNC
-                if let Some(original) = state.render_state.original_vsync.take() {
-                    settings.gui.vsync = original;
-                }
             }
         });
     }

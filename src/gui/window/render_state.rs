@@ -154,7 +154,6 @@ pub struct RenderState {
     pub frame_rate: RenderFrameRate,
     pub quality: u8,
     pub is_rendering: bool,
-    pub original_vsync: Option<bool>,
     pub progress: RenderProgress,
 }
 
@@ -168,7 +167,6 @@ impl Default for RenderState {
             frame_rate: RenderFrameRate::default(),
             quality: 28,
             is_rendering: false,
-            original_vsync: None,
             progress: RenderProgress::default(),
         }
     }
