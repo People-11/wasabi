@@ -10,12 +10,16 @@ use crate::{
     utils::convert_seconds_to_time_string,
 };
 
+#[derive(Clone)]
 pub struct GuiMidiStats {
     pub time_passed: f64,
     pub time_total: f64,
     pub notes_on_screen: u64,
     pub polyphony: Option<u64>,
     pub voice_count: Option<u64>,
+    pub fps: u32,
+    pub nps: u32,
+    pub note_stats: MIDIFileStats,
 }
 
 impl GuiMidiStats {
@@ -26,6 +30,9 @@ impl GuiMidiStats {
             notes_on_screen: 0,
             polyphony: None,
             voice_count: None,
+            fps: 0,
+            nps: 0,
+            note_stats: MIDIFileStats::default(),
         }
     }
 
@@ -42,6 +49,162 @@ impl GuiMidiStats {
     }
 }
 
+/// Standalone function to draw the statistics panel
+pub fn draw_stats_panel(
+    ctx: &Context,
+    pos: Pos2,
+    stats: &GuiMidiStats,
+    settings: &WasabiSettings,
+    is_video_render: bool,
+) {
+    // Prepare frame based on settings
+    let opacity = settings.scene.statistics.opacity.clamp(0.0, 1.0);
+    let alpha = (u8::MAX as f32 * opacity).round() as u8;
+
+    let round = 8;
+
+    let mut stats_frame = Frame::default()
+        .inner_margin(egui::Margin::same(7))
+        .fill(egui::Color32::from_black_alpha(alpha));
+
+    if settings.scene.statistics.floating {
+        stats_frame = stats_frame.corner_radius(egui::CornerRadius::same(round));
+    } else {
+        stats_frame = stats_frame.corner_radius(egui::CornerRadius {
+            ne: 0,
+            nw: 0,
+            sw: 0,
+            se: round,
+        });
+    }
+
+    if settings.scene.statistics.border {
+        stats_frame =
+            stats_frame.stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 50, 50)));
+    }
+
+    // Render statistics in a window
+    egui::Window::new("Stats")
+        .resizable(false)
+        .collapsible(false)
+        .title_bar(false)
+        .scroll([false, false])
+        .interactable(false)
+        .frame(stats_frame)
+        .fixed_pos(pos)
+        .fixed_size(egui::Vec2::new(200.0, 128.0))
+        .show(ctx, |ui| {
+            ui.spacing_mut().interact_size.y = 16.0;
+
+            let mut f = Formatter::new()
+                .separator(',')
+                .unwrap()
+                .precision(Precision::Decimals(0));
+
+            for i in settings.scene.statistics.order.iter().filter(|i| i.1) {
+                match i.0 {
+                    Statistics::Time => {
+                        ui.horizontal(|ui| {
+                            ui.monospace("Time:");
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.monospace(format!(
+                                        "{} / {}",
+                                        convert_seconds_to_time_string(stats.time_passed),
+                                        convert_seconds_to_time_string(stats.time_total)
+                                    ));
+                                },
+                            );
+                        });
+                    }
+                    Statistics::Fps => {
+                        // Skip FPS display in video render mode
+                        if is_video_render {
+                            continue;
+                        }
+                        ui.horizontal(|ui| {
+                            ui.monospace("FPS:");
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.monospace(f.fmt2(stats.fps as u64).to_string());
+                                },
+                            );
+                        });
+                    }
+                    Statistics::VoiceCount => {
+                        // Skip Voice Count display in video render mode
+                        if is_video_render {
+                            continue;
+                        }
+                        if let Some(voice_count) = stats.voice_count {
+                            ui.horizontal(|ui| {
+                                ui.monospace("Voice Count:");
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.monospace(f.fmt2(voice_count).to_string());
+                                    },
+                                );
+                            });
+                        }
+                    }
+                    Statistics::Rendered => {
+                        ui.horizontal(|ui| {
+                            ui.monospace("Rendered:");
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.monospace(f.fmt2(stats.notes_on_screen).to_string());
+                                },
+                            );
+                        });
+                    }
+                    Statistics::NoteCount => {
+                        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                            ui.monospace(format!(
+                                "{} / {}",
+                                stats.note_stats
+                                    .passed_notes
+                                    .map(|n| f.fmt2(n).to_string())
+                                    .unwrap_or_else(|| "-".to_string()),
+                                stats.note_stats
+                                    .total_notes
+                                    .map(|n| f.fmt2(n).to_string())
+                                    .unwrap_or_else(|| "-".to_string())
+                            ));
+                        });
+                    }
+                    Statistics::Nps => {
+                        ui.horizontal(|ui| {
+                            ui.monospace("NPS:");
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.monospace(f.fmt2(stats.nps as u64).to_string());
+                                },
+                            );
+                        });
+                    }
+                    Statistics::Polyphony => {
+                        if let Some(poly) = stats.polyphony {
+                            ui.horizontal(|ui| {
+                                ui.monospace("Polyphony:");
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.monospace(f.fmt2(poly).to_string());
+                                    },
+                                );
+                            });
+                        }
+                    }
+                };
+            }
+        });
+}
+
 impl GuiWasabiWindow {
     pub fn draw_stats(
         &mut self,
@@ -51,167 +214,29 @@ impl GuiWasabiWindow {
         settings: &WasabiSettings,
         is_video_render: bool,
     ) {
-        // Prepare frame based on settings
-        let opacity = settings.scene.statistics.opacity.clamp(0.0, 1.0);
-        let alpha = (u8::MAX as f32 * opacity).round() as u8;
+        // Collect data from GuiWasabiWindow state
+        if let Some(midi_file) = self.midi_file.as_mut() {
+            stats.time_total = midi_file.midi_length().unwrap_or(0.0);
+            let time = midi_file.timer().get_time().as_seconds_f64();
 
-        let round = 8;
+            if time > stats.time_total {
+                stats.time_passed = stats.time_total;
+            } else {
+                stats.time_passed = time;
+            }
 
-        let mut stats_frame = Frame::default()
-            .inner_margin(egui::Margin::same(7))
-            .fill(egui::Color32::from_black_alpha(alpha));
-
-        if settings.scene.statistics.floating {
-            stats_frame = stats_frame.corner_radius(egui::CornerRadius::same(round));
-        } else {
-            stats_frame = stats_frame.corner_radius(egui::CornerRadius {
-                ne: 0,
-                nw: 0,
-                sw: 0,
-                se: round,
-            });
+            stats.note_stats = midi_file.stats();
         }
+        
+        // Update NPS
+        self.nps.tick(stats.note_stats.passed_notes.unwrap_or(0) as i64);
+        stats.nps = self.nps.read();
+        
+        // Get FPS
+        stats.fps = self.fps.get_fps() as u32;
 
-        if settings.scene.statistics.border {
-            stats_frame =
-                stats_frame.stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 50, 50)));
-        }
-
-        // Render statistics in a window
-        egui::Window::new("Stats")
-            .resizable(false)
-            .collapsible(false)
-            .title_bar(false)
-            .scroll([false, false])
-            .interactable(false)
-            .frame(stats_frame)
-            .fixed_pos(pos)
-            .fixed_size(egui::Vec2::new(200.0, 128.0))
-            .show(ctx, |ui| {
-                ui.spacing_mut().interact_size.y = 16.0;
-
-                let mut f = Formatter::new()
-                    .separator(',')
-                    .unwrap()
-                    .precision(Precision::Decimals(0));
-
-                let mut note_stats = MIDIFileStats::default();
-                if let Some(midi_file) = self.midi_file.as_mut() {
-                    stats.time_total = midi_file.midi_length().unwrap_or(0.0);
-                    let time = midi_file.timer().get_time().as_seconds_f64();
-
-                    if time > stats.time_total {
-                        stats.time_passed = stats.time_total;
-                    } else {
-                        stats.time_passed = time;
-                    }
-
-                    note_stats = midi_file.stats();
-                }
-
-                for i in settings.scene.statistics.order.iter().filter(|i| i.1) {
-                    match i.0 {
-                        Statistics::Time => {
-                            ui.horizontal(|ui| {
-                                ui.monospace("Time:");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.monospace(format!(
-                                            "{} / {}",
-                                            convert_seconds_to_time_string(stats.time_passed),
-                                            convert_seconds_to_time_string(stats.time_total)
-                                        ));
-                                    },
-                                );
-                            });
-                        }
-                        Statistics::Fps => {
-                            // Skip FPS display in video render mode
-                            if is_video_render {
-                                continue;
-                            }
-                            ui.horizontal(|ui| {
-                                ui.monospace("FPS:");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.monospace(f.fmt2(self.fps.get_fps()).to_string());
-                                    },
-                                );
-                            });
-                        }
-                        Statistics::VoiceCount => {
-                            // Skip Voice Count display in video render mode
-                            if is_video_render {
-                                continue;
-                            }
-                            if let Some(voice_count) = stats.voice_count {
-                                ui.horizontal(|ui| {
-                                    ui.monospace("Voice Count:");
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            ui.monospace(f.fmt2(voice_count).to_string());
-                                        },
-                                    );
-                                });
-                            }
-                        }
-                        Statistics::Rendered => {
-                            ui.horizontal(|ui| {
-                                ui.monospace("Rendered:");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.monospace(f.fmt2(stats.notes_on_screen).to_string());
-                                    },
-                                );
-                            });
-                        }
-                        Statistics::NoteCount => {
-                            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                                ui.monospace(format!(
-                                    "{} / {}",
-                                    note_stats
-                                        .passed_notes
-                                        .map(|n| f.fmt2(n).to_string())
-                                        .unwrap_or_else(|| "-".to_string()),
-                                    note_stats
-                                        .total_notes
-                                        .map(|n| f.fmt2(n).to_string())
-                                        .unwrap_or_else(|| "-".to_string())
-                                ));
-                            });
-                        }
-                        Statistics::Nps => {
-                            ui.horizontal(|ui| {
-                                ui.monospace("NPS:");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        self.nps.tick(note_stats.passed_notes.unwrap_or(0) as i64);
-                                        ui.monospace(f.fmt2(self.nps.read()).to_string());
-                                    },
-                                );
-                            });
-                        }
-                        Statistics::Polyphony => {
-                            if let Some(poly) = stats.polyphony {
-                                ui.horizontal(|ui| {
-                                    ui.monospace("Polyphony:");
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            ui.monospace(f.fmt2(poly).to_string());
-                                        },
-                                    );
-                                });
-                            }
-                        }
-                    };
-                }
-            });
+        // Delegate to static function
+        draw_stats_panel(ctx, pos, &stats, settings, is_video_render);
     }
 }
 
@@ -250,3 +275,4 @@ impl NpsCounter {
         ((last - old).max(0.0) / Self::NPS_WINDOW).round() as u32
     }
 }
+

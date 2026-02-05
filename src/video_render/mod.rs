@@ -3,13 +3,10 @@
 //! This module provides the core functionality for rendering MIDI playback
 //! to video files using FFmpeg.
 
+pub mod egui_render_pass;
 pub mod ffmpeg_encoder;
-pub mod keyboard_renderer;
 pub mod offscreen_renderer;
-pub mod overlay_renderer;
 pub mod render_loop;
-pub mod text_renderer;
-pub mod utils;
 
 use std::path::PathBuf;
 
