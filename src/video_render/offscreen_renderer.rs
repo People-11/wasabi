@@ -11,15 +11,21 @@ use vulkano::{
     sync::{self, GpuFuture}, VulkanLibrary,
 };
 use crate::{
-    gui::window::{keyboard::GuiKeyboard, keyboard_layout::KeyboardLayout, scene::note_list_system::NoteRenderer, stats::{draw_stats_panel, GuiMidiStats, NpsCounter}},
-    midi::MIDIFile, settings::WasabiSettings, video_render::{egui_render_pass::EguiRenderer, RenderConfig},
+    gui::window::{keyboard::GuiKeyboard, keyboard_layout::KeyboardLayout, scene::{note_list_system::NoteRenderer, pie_system::PieRenderer}, stats::{draw_stats_panel, GuiMidiStats, NpsCounter}},
+    midi::{MIDIFileBase, MIDIFileUnion}, settings::WasabiSettings, video_render::{egui_render_pass::EguiRenderer, RenderConfig},
 };
+use crate::gui::window::render_state::ParseMode;
+
+enum SceneRenderer {
+    Note(NoteRenderer),
+    Pie(PieRenderer),
+}
 
 pub struct OffscreenRenderer {
     device: Arc<Device>, queue: Arc<Queue>,
     cb_allocator: Arc<StandardCommandBufferAllocator>,
     egui_renderer: EguiRenderer,
-    note_renderer: NoteRenderer,
+    scene_renderer: SceneRenderer,
     gui_keyboard: GuiKeyboard,
     keyboard_layout: KeyboardLayout,
     stats: GuiMidiStats,
@@ -53,17 +59,25 @@ impl OffscreenRenderer {
         let staging_buffer = Buffer::new_slice::<u8>(alloc, BufferCreateInfo { usage: BufferUsage::TRANSFER_DST, ..Default::default() }, AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::HOST_RANDOM_ACCESS, ..Default::default() }, (width * height * 4) as u64).unwrap();
 
         let ppp = ((height as f32 / 1080.0) * 1.5).max(1.0);
+        
+        let egui_renderer = EguiRenderer::new(device.clone(), queue.clone(), format, width, height, ppp);
+        let scene_renderer = if config.parse_mode == ParseMode::Pie {
+            SceneRenderer::Pie(PieRenderer::new(device.clone(), queue.clone(), format))
+        } else {
+            SceneRenderer::Note(NoteRenderer::new(device.clone(), queue.clone(), format))
+        };
+
         Ok(Self {
             device: device.clone(), queue: queue.clone(),
             cb_allocator: Arc::new(StandardCommandBufferAllocator::new(device.clone(), Default::default())),
-            egui_renderer: EguiRenderer::new(device.clone(), queue.clone(), format, width, height, ppp),
-            note_renderer: NoteRenderer::new_offscreen(device, queue, format),
+            egui_renderer,
+            scene_renderer,
             gui_keyboard: GuiKeyboard::new(), keyboard_layout: KeyboardLayout::new(&Default::default()),
             stats: GuiMidiStats::empty(), nps_counter: NpsCounter::default(), ppp, final_image, depth_buffer, staging_buffer,
         })
     }
 
-    pub fn render_frame_into(&mut self, output: &mut [u8], midi: &mut impl MIDIFile, range: f32, settings: &WasabiSettings, time: f64) -> Result<(), String> {
+    pub fn render_frame_into(&mut self, output: &mut [u8], midi_union: &mut MIDIFileUnion, range: f32, settings: &WasabiSettings, time: f64) -> Result<(), String> {
         let extent = self.final_image.image().extent();
         let (w, h) = (extent[0], extent[1]);
         let k_h = h as f32 * 0.15;
@@ -75,13 +89,19 @@ impl OffscreenRenderer {
         let bg_color = Some([to_l(bg.r() as f32 / 255.0), to_l(bg.g() as f32 / 255.0), to_l(bg.b() as f32 / 255.0), 1.0]);
 
         let vp = vulkano::pipeline::graphics::viewport::Viewport { offset: [0.0, 0.0], extent: [w as f32, n_h], depth_range: 0.0..=1.0 };
-        let res = self.note_renderer.draw(&key_view, self.final_image.clone(), midi, range as f64, bg_color, Some(vp));
+        
+        let res = match (&mut *midi_union, &mut self.scene_renderer) {
+            (MIDIFileUnion::Pie(m), SceneRenderer::Pie(r)) => r.draw(&key_view, self.final_image.clone(), m, range as f64, bg_color, Some(vp)),
+            (MIDIFileUnion::Live(m), SceneRenderer::Note(r)) => r.draw(&key_view, self.final_image.clone(), m, range as f64, bg_color, Some(vp)),
+            (MIDIFileUnion::InRam(m), SceneRenderer::Note(r)) => r.draw(&key_view, self.final_image.clone(), m, range as f64, bg_color, Some(vp)),
+            _ => return Err("Mismatched renderer and MIDI mode".into()),
+        };
         
         self.stats.set_rendered_note_count(res.notes_rendered);
         self.stats.set_polyphony(res.polyphony);
-        if let Some(len) = midi.midi_length() { self.stats.time_total = len; }
+        if let Some(len) = midi_union.midi_length() { self.stats.time_total = len; }
         self.stats.time_passed = time;
-        self.stats.note_stats = midi.stats();
+        self.stats.note_stats = midi_union.stats();
         self.nps_counter.tick(self.stats.note_stats.passed_notes.unwrap_or(0) as i64);
         self.stats.nps = self.nps_counter.read();
 

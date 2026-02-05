@@ -33,7 +33,7 @@ impl GuiWasabiWindow {
         frame.shadow = egui::Shadow::NONE;
 
         // Slightly shorter since we are reducing padding
-        let size = [500.0, 480.0];
+        let size = [500.0, 510.0];
 
         egui::Window::new("Render Video")
             .resizable(false)
@@ -157,6 +157,29 @@ impl GuiWasabiWindow {
                             "(None selected)".to_string()
                         };
                         ui.label(egui::RichText::new(text).strong());
+                    });
+                });
+                ui.end_row();
+
+                // Parse Mode
+                ui.label("Parse Mode:");
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ComboBox::from_id_salt("parse_mode_combo")
+                            .selected_text(state.render_state.parse_mode.label())
+                            .width(100.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut state.render_state.parse_mode,
+                                    crate::gui::window::render_state::ParseMode::Live,
+                                    crate::gui::window::render_state::ParseMode::Live.label(),
+                                );
+                                ui.selectable_value(
+                                    &mut state.render_state.parse_mode,
+                                    crate::gui::window::render_state::ParseMode::Pie,
+                                    crate::gui::window::render_state::ParseMode::Pie.label(),
+                                );
+                            });
                     });
                 });
                 ui.end_row();
@@ -316,6 +339,7 @@ impl GuiWasabiWindow {
                         state.render_state.output_path.clone().unwrap(),
                         state.render_state.resolution,
                         state.render_state.frame_rate,
+                        state.render_state.parse_mode,
                         state.render_state.quality,
                         settings.clone(),
                     );

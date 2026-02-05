@@ -1,6 +1,6 @@
 mod cake_system;
 pub mod note_list_system;
-mod pie_system;
+pub mod pie_system;
 
 use egui::{Image, Ui};
 
@@ -25,7 +25,7 @@ impl CurrentRenderer {
         match self {
             CurrentRenderer::Note(renderer) => renderer,
             _ => {
-                let renderer = NoteRenderer::new(renderer);
+                let renderer = NoteRenderer::new(renderer.device.clone(), renderer.queue.clone(), renderer.format);
                 *self = CurrentRenderer::Note(renderer);
                 match self {
                     CurrentRenderer::Note(renderer) => renderer,
@@ -53,7 +53,7 @@ impl CurrentRenderer {
         match self {
             CurrentRenderer::Pie(renderer) => renderer,
             _ => {
-                let renderer = PieRenderer::new(renderer);
+                let renderer = PieRenderer::new(renderer.device.clone(), renderer.queue.clone(), renderer.format);
                 *self = CurrentRenderer::Pie(renderer);
                 match self {
                     CurrentRenderer::Pie(renderer) => renderer,
@@ -116,7 +116,7 @@ impl GuiRenderScene {
             MIDIFileUnion::Pie(file) => self
                 .draw_system
                 .get_pie_renderer(state.renderer)
-                .draw(key_view, frame, file, view_range),
+                .draw(key_view, frame, file, view_range, None, None),
         };
 
         let img = Image::new((scene_image.id, [size[0] as f32, size[1] as f32].into()));

@@ -1,6 +1,6 @@
 use std::{sync::atomic::Ordering, thread};
 use time::Duration;
-use crate::{audio_playback::WasabiAudioPlayer, gui::window::render_state::RenderProgress, midi::{LiveLoadMIDIFile, MIDIFileBase}};
+use crate::{audio_playback::WasabiAudioPlayer, gui::window::render_state::{ParseMode, RenderProgress}, midi::{LiveLoadMIDIFile, MIDIFileBase, MIDIFileUnion, PieMIDIFile}};
 use super::{ffmpeg_encoder::FFmpegEncoder, offscreen_renderer::OffscreenRenderer, RenderConfig};
 
 pub fn start_render(config: RenderConfig, progress: RenderProgress) {
@@ -13,7 +13,10 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
     let frame_dur = 1.0 / fps as f64;
 
     let mut renderer = OffscreenRenderer::new(&config).map_err(|e| format!("Init error: {e}"))?;
-    let mut midi = LiveLoadMIDIFile::load_from_file(&config.midi_path, WasabiAudioPlayer::empty(), &config.settings.midi).map_err(|e| format!("MIDI error: {e:?}"))?;
+    let mut midi = match config.parse_mode {
+        ParseMode::Live => MIDIFileUnion::Live(LiveLoadMIDIFile::load_from_file(&config.midi_path, WasabiAudioPlayer::empty(), &config.settings.midi).map_err(|e| format!("MIDI error: {e:?}"))?),
+        ParseMode::Pie => MIDIFileUnion::Pie(PieMIDIFile::load_from_file(&config.midi_path, WasabiAudioPlayer::empty(), &config.settings.midi).map_err(|e| format!("MIDI error: {e:?}"))?),
+    };
     
     let midi_len = loop { if let Some(l) = midi.midi_length() { break l; } thread::sleep(std::time::Duration::from_millis(100)); };
     progress.is_parsing.store(false, Ordering::Relaxed);
