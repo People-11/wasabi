@@ -18,7 +18,7 @@ pub struct GuiMidiStats {
     pub polyphony: Option<u64>,
     pub voice_count: Option<u64>,
     pub fps: u32,
-    pub nps: u32,
+    pub nps: u64,
     pub note_stats: MIDIFileStats,
 }
 
@@ -259,7 +259,7 @@ impl NpsCounter {
         }
     }
 
-    pub fn read(&self) -> u32 {
+    pub fn read(&self) -> u64 {
         let old = if let Some((_time, front_passed)) = self.ticks.front() {
             *front_passed as f64
         } else {
@@ -272,7 +272,7 @@ impl NpsCounter {
             0.0
         };
 
-        ((last - old).max(0.0) / Self::NPS_WINDOW).round() as u32
+        ((last - old).max(0.0) / Self::NPS_WINDOW).round() as u64
     }
 }
 

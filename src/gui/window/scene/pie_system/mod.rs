@@ -12,7 +12,7 @@ use vulkano::{
         allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo},
         DescriptorSet, WriteDescriptorSet,
     },
-    device::Queue,
+    device::{Device, Queue},
     format::{ClearValue, Format},
     image::{view::ImageView, Image, ImageCreateInfo, ImageUsage},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
@@ -36,7 +36,7 @@ use vulkano::{
 };
 
 use crate::{
-    gui::{window::keyboard_layout::KeyboardView, GuiRenderer},
+    gui::window::keyboard_layout::KeyboardView,
     midi::{PieMIDIFile, PieSignature},
 };
 
@@ -79,126 +79,51 @@ pub struct PieRenderer {
 }
 
 impl PieRenderer {
-    pub fn new(renderer: &GuiRenderer) -> PieRenderer {
-        let allocator = Arc::new(StandardMemoryAllocator::new_default(
-            renderer.device.clone(),
-        ));
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>, format: Format) -> PieRenderer {
+        let allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-        let gfx_queue = renderer.queue.clone();
-
-        let render_pass_clear = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
+        let render_pass_clear = vulkano::ordered_passes_renderpass!(device.clone(),
             attachments: {
-                final_color: {
-                    format: renderer.format,
-                    samples: 1,
-                    load_op: Clear,
-                    store_op: Store,
-                },
-                depth: {
-                    format: Format::D16_UNORM,
-                    samples: 1,
-                    load_op: Clear,
-                    store_op: Store,
-                }
+                final_color: { format: format, samples: 1, load_op: Clear, store_op: Store },
+                depth: { format: Format::D16_UNORM, samples: 1, load_op: Clear, store_op: Store }
             },
-            passes: [
-                {
-                    color: [final_color],
-                    depth_stencil: {depth},
-                    input: []
-                }
-            ]
-        )
-        .unwrap();
+            passes: [{ color: [final_color], depth_stencil: {depth}, input: [] }]
+        ).unwrap();
 
-        let depth_buffer = ImageView::new_default(
-            Image::new(
-                allocator.clone(),
-                ImageCreateInfo {
-                    extent: [1, 1, 1],
-                    format: Format::D16_UNORM,
-                    usage: ImageUsage::SAMPLED | ImageUsage::DEPTH_STENCIL_ATTACHMENT,
-                    ..Default::default()
-                },
-                Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        let depth_buffer = ImageView::new_default(Image::new(allocator.clone(), ImageCreateInfo { extent: [1, 1, 1], format: Format::D16_UNORM, usage: ImageUsage::SAMPLED | ImageUsage::DEPTH_STENCIL_ATTACHMENT, ..Default::default() }, Default::default()).unwrap()).unwrap();
 
-        let vs = vs::load(gfx_queue.device().clone())
-            .expect("failed to create shader module")
-            .entry_point("main")
-            .unwrap();
-        let fs = fs::load(gfx_queue.device().clone())
-            .expect("failed to create shader module")
-            .entry_point("main")
-            .unwrap();
-        let gs = gs::load(gfx_queue.device().clone())
-            .expect("failed to create shader module")
-            .entry_point("main")
-            .unwrap();
+        let vs = vs::load(device.clone()).unwrap().entry_point("main").unwrap();
+        let fs = fs::load(device.clone()).unwrap().entry_point("main").unwrap();
+        let gs = gs::load(device.clone()).unwrap().entry_point("main").unwrap();
 
         let vertex_input_state = PieNoteColumn::per_vertex().definition(&vs).unwrap();
-        let stages = [
-            PipelineShaderStageCreateInfo::new(vs),
-            PipelineShaderStageCreateInfo::new(fs),
-            PipelineShaderStageCreateInfo::new(gs),
-        ];
-        let layout = PipelineLayout::new(
-            renderer.device.clone(),
-            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
-                .into_pipeline_layout_create_info(renderer.device.clone())
-                .unwrap(),
-        )
-        .unwrap();
+        let stages = [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs), PipelineShaderStageCreateInfo::new(gs)];
+        let layout = PipelineLayout::new(device.clone(), PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages).into_pipeline_layout_create_info(device.clone()).unwrap()).unwrap();
         let subpass = Subpass::from(render_pass_clear.clone(), 0).unwrap();
 
-        let pipeline_clear = GraphicsPipeline::new(
-            renderer.device.clone(),
-            None,
-            GraphicsPipelineCreateInfo {
-                stages: stages.into_iter().collect(),
-                vertex_input_state: Some(vertex_input_state),
-                input_assembly_state: Some(InputAssemblyState {
-                    topology: PrimitiveTopology::PointList,
-                    ..Default::default()
-                }),
-                viewport_state: Some(Default::default()),
-                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-                rasterization_state: Some(RasterizationState::default()),
-                multisample_state: Some(MultisampleState::default()),
-                color_blend_state: Some(ColorBlendState::with_attachment_states(
-                    subpass.num_color_attachments(),
-                    ColorBlendAttachmentState::default(),
-                )),
-                depth_stencil_state: Some(DepthStencilState {
-                    depth: Some(DepthState::simple()),
-                    ..Default::default()
-                }),
-                subpass: Some(subpass.into()),
-                ..GraphicsPipelineCreateInfo::layout(layout)
-            },
-        )
-        .unwrap();
+        let pipeline_clear = GraphicsPipeline::new(device.clone(), None, GraphicsPipelineCreateInfo {
+            stages: stages.into_iter().collect(),
+            vertex_input_state: Some(vertex_input_state),
+            input_assembly_state: Some(InputAssemblyState { topology: PrimitiveTopology::PointList, ..Default::default() }),
+            viewport_state: Some(Default::default()),
+            dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+            rasterization_state: Some(RasterizationState::default()),
+            multisample_state: Some(MultisampleState::default()),
+            color_blend_state: Some(ColorBlendState::with_attachment_states(subpass.num_color_attachments(), ColorBlendAttachmentState::default())),
+            depth_stencil_state: Some(DepthStencilState { depth: Some(DepthState::simple()), ..Default::default() }),
+            subpass: Some(subpass.into()),
+            ..GraphicsPipelineCreateInfo::layout(layout)
+        }).unwrap();
 
         PieRenderer {
-            gfx_queue,
+            gfx_queue: queue,
             batches: vec![],
             pipeline_clear,
             render_pass_clear,
             depth_buffer,
             allocator,
-            cb_allocator: StandardCommandBufferAllocator::new(
-                renderer.device.clone(),
-                StandardCommandBufferAllocatorCreateInfo::default(),
-            )
-            .into(),
-            sd_allocator: StandardDescriptorSetAllocator::new(
-                renderer.device.clone(),
-                StandardDescriptorSetAllocatorCreateInfo::default(),
-            )
-            .into(),
+            cb_allocator: StandardCommandBufferAllocator::new(device.clone(), StandardCommandBufferAllocatorCreateInfo::default()).into(),
+            sd_allocator: StandardDescriptorSetAllocator::new(device.clone(), StandardDescriptorSetAllocatorCreateInfo::default()).into(),
             current_file_signature: None,
         }
     }
@@ -209,6 +134,8 @@ impl PieRenderer {
         final_image: Arc<ImageView>,
         midi_file: &mut PieMIDIFile,
         view_range: f64,
+        bg_color: Option<[f32; 4]>,
+        viewport: Option<Viewport>,
     ) -> RenderResultData {
         let img_dims = final_image.image().extent();
         if self.depth_buffer.image().extent() != img_dims {
@@ -228,7 +155,7 @@ impl PieRenderer {
             .unwrap();
         }
 
-        let curr_signature = midi_file.cake_signature();
+        let curr_signature = midi_file.pie_signature();
         if self.current_file_signature.as_ref() != Some(&curr_signature) {
             self.current_file_signature = Some(curr_signature);
             self.batches.clear();
@@ -319,11 +246,13 @@ impl PieRenderer {
             key_view.visible_range.len() as f32,
         ) as i32;
 
-        let (clears, pipeline, render_pass) = (
-            vec![
-                Some(ClearValue::from([0.0f32, 0.0, 0.0, 0.0])),
-                Some(ClearValue::from(1.0f32)),
-            ],
+
+        let clears = vec![
+            Some(bg_color.map(|c| ClearValue::from(c)).unwrap_or(ClearValue::from([0.0f32, 0.0, 0.0, 0.0]))),
+            Some(ClearValue::from(1.0f32)),
+        ];
+
+        let (pipeline, render_pass) = (
             &self.pipeline_clear,
             &self.render_pass_clear,
         );
@@ -361,11 +290,11 @@ impl PieRenderer {
             .unwrap()
             .set_viewport(
                 0,
-                [Viewport {
+                [viewport.unwrap_or(Viewport {
                     offset: [0.0, 0.0],
                     extent: [img_dims[0] as f32, img_dims[1] as f32],
                     depth_range: 0.0..=1.0,
-                }]
+                })]
                 .into_iter()
                 .collect(),
             )

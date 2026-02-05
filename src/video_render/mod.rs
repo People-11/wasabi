@@ -10,7 +10,7 @@ pub mod render_loop;
 
 use std::path::PathBuf;
 
-use crate::gui::window::render_state::{RenderFrameRate, RenderResolution};
+use crate::gui::window::render_state::{ParseMode, RenderFrameRate, RenderResolution};
 use crate::settings::WasabiSettings;
 
 #[derive(Clone)]
@@ -20,6 +20,7 @@ pub struct RenderConfig {
     pub output_path: PathBuf,
     pub resolution: RenderResolution,
     pub frame_rate: RenderFrameRate,
+    pub parse_mode: ParseMode,
     pub quality: u8,
     pub start_delay: f64,
     pub settings: WasabiSettings,
@@ -32,6 +33,7 @@ impl RenderConfig {
         output_path: PathBuf,
         resolution: RenderResolution,
         frame_rate: RenderFrameRate,
+        parse_mode: ParseMode,
         quality: u8,
         settings: WasabiSettings,
     ) -> Self {
@@ -41,6 +43,7 @@ impl RenderConfig {
             output_path,
             resolution,
             frame_rate,
+            parse_mode,
             quality,
             start_delay: settings.midi.start_delay,
             settings,

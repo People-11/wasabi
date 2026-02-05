@@ -6,7 +6,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 use vulkano::image::view::ImageView;
 
 use crate::{
-    gui::{window::keyboard_layout::KeyboardView, GuiRenderer},
+    gui::window::keyboard_layout::KeyboardView,
     midi::{DisplacedMIDINote, MIDIColor, MIDIFile, MIDINoteColumnView, MIDINoteViews},
     utils,
 };
@@ -43,21 +43,9 @@ unsafe impl<T> Sync for UnsafeSyncCell<T> {}
 unsafe impl<T> Send for UnsafeSyncCell<T> {}
 
 impl NoteRenderer {
-    pub fn new(renderer: &GuiRenderer) -> NoteRenderer {
+    pub fn new(device: Arc<vulkano::device::Device>, queue: Arc<vulkano::device::Queue>, format: vulkano::format::Format) -> NoteRenderer {
         NoteRenderer {
-            render_pass: NoteRenderPass::new(renderer),
-            thrad_pool: rayon::ThreadPoolBuilder::new().build().unwrap(),
-        }
-    }
-
-    /// Create a NoteRenderer for offscreen rendering (without egui dependency)
-    pub fn new_offscreen(
-        device: std::sync::Arc<vulkano::device::Device>,
-        queue: std::sync::Arc<vulkano::device::Queue>,
-        format: vulkano::format::Format,
-    ) -> NoteRenderer {
-        NoteRenderer {
-            render_pass: NoteRenderPass::new_offscreen(device, queue, format),
+            render_pass: NoteRenderPass::new(device, queue, format),
             thrad_pool: rayon::ThreadPoolBuilder::new().build().unwrap(),
         }
     }

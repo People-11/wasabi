@@ -55,6 +55,22 @@ impl RenderFrameRate {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum ParseMode {
+    #[default]
+    Live,
+    Pie,
+}
+
+impl ParseMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ParseMode::Live => "Live",
+            ParseMode::Pie => "Pie",
+        }
+    }
+}
+
 /// 渲染进度跟踪（线程安全）
 pub struct RenderProgress {
     pub current_frame: Arc<AtomicU64>,
@@ -152,6 +168,7 @@ pub struct RenderState {
     pub output_path: Option<PathBuf>,
     pub resolution: RenderResolution,
     pub frame_rate: RenderFrameRate,
+    pub parse_mode: ParseMode,
     pub quality: u8,
     pub is_rendering: bool,
     pub progress: RenderProgress,
@@ -165,6 +182,7 @@ impl Default for RenderState {
             output_path: None,
             resolution: RenderResolution::default(),
             frame_rate: RenderFrameRate::default(),
+            parse_mode: ParseMode::default(),
             quality: 28,
             is_rendering: false,
             progress: RenderProgress::default(),

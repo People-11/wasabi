@@ -182,7 +182,7 @@ impl PieMIDIFile {
         self.timer.get_time()
     }
 
-    pub fn cake_signature(&self) -> PieSignature {
+    pub fn pie_signature(&self) -> PieSignature {
         PieSignature {
             file_signature: self.signature.clone(),
             note_count: self.note_count,
@@ -193,7 +193,7 @@ impl PieMIDIFile {
     }
 }
 
-/// A struct that uniquely identifies a cake midi file.
+/// A struct that uniquely identifies a pie midi file.
 /// This lets the renderer know if the file has changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PieSignature {
