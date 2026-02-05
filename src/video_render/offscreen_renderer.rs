@@ -1,423 +1,110 @@
-//! Offscreen renderer for video frame generation
-//!
-//! This module provides GPU rendering capabilities without a window,
-//! allowing MIDI visualization to be rendered directly to buffers for video encoding.
-
-use crate::gui::window::stats::GuiMidiStats;
-use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
-
+use egui::Pos2;
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
-    command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
-        CopyImageToBufferInfo,
-    },
-    device::{
-        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures,
-        Queue, QueueCreateInfo, QueueFlags,
-    },
+    command_buffer::{allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo},
+    device::{physical::PhysicalDeviceType, Device, DeviceCreateInfo, Queue, QueueCreateInfo, QueueFlags},
     format::Format,
-    image::{view::ImageView, Image, ImageCreateInfo, ImageUsage},
-    instance::{Instance, InstanceCreateInfo},
+    image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
+    instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
-    sync::{self, GpuFuture},
-    VulkanLibrary,
+    sync::{self, GpuFuture}, VulkanLibrary,
+};
+use crate::{
+    gui::window::{keyboard::GuiKeyboard, keyboard_layout::KeyboardLayout, scene::note_list_system::NoteRenderer, stats::{draw_stats_panel, GuiMidiStats, NpsCounter}},
+    midi::MIDIFile, settings::WasabiSettings, video_render::{egui_render_pass::EguiRenderer, RenderConfig},
 };
 
-use crate::gui::window::keyboard_layout::{KeyboardLayout, KeyboardParams};
-use crate::gui::window::scene::note_list_system::NoteRenderer;
-use crate::midi::MIDIFile;
-use crate::settings::WasabiSettings;
-
-// Black key lookup table for efficient key type checking
-// Pattern: C C# D D# E F F# G G# A A# B
-const BLACK_KEY_PATTERN: [bool; 12] = [
-    false, true, false, true, false,  // C, C#, D, D#, E
-    false, true, false, true, false, true, false,  // F, F#, G, G#, A, A#, B
-];
-
-/// Check if a MIDI key is black (inline for performance)
-#[inline(always)]
-fn is_black_key(key: usize) -> bool {
-    BLACK_KEY_PATTERN[key % 12]
-}
-
-/// Offscreen renderer for generating video frames
 pub struct OffscreenRenderer {
-    device: Arc<Device>,
-    queue: Arc<Queue>,
+    device: Arc<Device>, queue: Arc<Queue>,
     cb_allocator: Arc<StandardCommandBufferAllocator>,
-
-    // Render target
-    render_image: Arc<ImageView>,
-    staging_buffer: Subbuffer<[u8]>,
-
-    // Note renderer
+    egui_renderer: EguiRenderer,
     note_renderer: NoteRenderer,
-
-    // Keyboard layout
+    gui_keyboard: GuiKeyboard,
     keyboard_layout: KeyboardLayout,
-
-    // Dimensions
-    width: u32,
-    height: u32,
-
-    // NPS calculation history
-    nps_history: VecDeque<(f64, u64)>,
-    // Keyboard Cache
-    static_keyboard_buffer: Vec<u8>,
-    last_cache_params: Option<(usize, usize, u32, u32, [u8; 4])>, // start_key, end_key, width, height, bar_color
-    // Overlay Cache
-    overlay_cache: super::overlay_renderer::OverlayCache,
+    stats: GuiMidiStats,
+    nps_counter: NpsCounter,
+    ppp: f32,
+    final_image: Arc<ImageView>,
+    depth_buffer: Arc<ImageView>,
+    staging_buffer: Subbuffer<[u8]>,
 }
 
 impl OffscreenRenderer {
-    /// Create a new offscreen renderer with the specified dimensions
-    pub fn new(width: u32, height: u32) -> Result<Self, String> {
-        // Initialize Vulkan without a window
-        let library =
-            VulkanLibrary::new().map_err(|e| format!("Failed to load Vulkan library: {}", e))?;
+    pub fn new(config: &RenderConfig) -> Result<Self, String> {
+        let (width, height) = config.resolution.dimensions();
+        let lib = VulkanLibrary::new().map_err(|e| e.to_string())?;
+        let inst = Instance::new(lib, InstanceCreateInfo { flags: InstanceCreateFlags::ENUMERATE_PORTABILITY, ..Default::default() }).map_err(|e| e.to_string())?;
+        let p_dev = inst.enumerate_physical_devices().unwrap().min_by_key(|p| match p.properties().device_type {
+            PhysicalDeviceType::DiscreteGpu => 0, PhysicalDeviceType::IntegratedGpu => 1, _ => 5,
+        }).ok_or("no device")?;
 
-        let instance = Instance::new(
-            library,
-            InstanceCreateInfo {
-                ..Default::default()
-            },
-        )
-        .map_err(|e| format!("Failed to create Vulkan instance: {}", e))?;
-
-        // Find a suitable GPU (no surface support needed)
-        let device_extensions = DeviceExtensions::empty();
-        let features = DeviceFeatures {
-            geometry_shader: true,
-            ..DeviceFeatures::empty()
-        };
-
-        let (physical_device, queue_family_index) = instance
-            .enumerate_physical_devices()
-            .map_err(|e| format!("Failed to enumerate physical devices: {}", e))?
-            .filter(|p| p.supported_features().geometry_shader)
-            .filter_map(|p| {
-                p.queue_family_properties()
-                    .iter()
-                    .enumerate()
-                    .position(|(_, q)| q.queue_flags.contains(QueueFlags::GRAPHICS))
-                    .map(|i| (p, i as u32))
-            })
-            .min_by_key(|(p, _)| match p.properties().device_type {
-                PhysicalDeviceType::DiscreteGpu => 0,
-                PhysicalDeviceType::IntegratedGpu => 1,
-                PhysicalDeviceType::VirtualGpu => 2,
-                PhysicalDeviceType::Cpu => 3,
-                PhysicalDeviceType::Other => 4,
-                _ => 5,
-            })
-            .ok_or("No suitable GPU found with geometry shader support")?;
-
-        println!(
-            "[OffscreenRenderer] Using device: {} (type: {:?})",
-            physical_device.properties().device_name,
-            physical_device.properties().device_type,
-        );
-
-        // Create device
-        let (device, mut queues) = Device::new(
-            physical_device,
-            DeviceCreateInfo {
-                enabled_extensions: device_extensions,
-                enabled_features: features,
-                queue_create_infos: vec![QueueCreateInfo {
-                    queue_family_index,
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
-        )
-        .map_err(|e| format!("Failed to create device: {}", e))?;
-
-        let queue = queues.next().ok_or("No queue available")?;
-        let allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-        let cb_allocator = Arc::new(StandardCommandBufferAllocator::new(
-            device.clone(),
-            Default::default(),
-        ));
-
-        // Create render target (BGRA for FFmpeg compatibility)
+        let q_fam = p_dev.queue_family_properties().iter().position(|q| q.queue_flags.contains(QueueFlags::GRAPHICS)).ok_or("no queue")? as u32;
+        let (device, mut queues) = Device::new(p_dev, DeviceCreateInfo {
+            enabled_features: vulkano::device::DeviceFeatures { geometry_shader: true, ..vulkano::device::DeviceFeatures::empty() },
+            queue_create_infos: vec![QueueCreateInfo { queue_family_index: q_fam, ..Default::default() }], ..Default::default()
+        }).map_err(|e| e.to_string())?;
+        let queue = queues.next().unwrap();
+        let alloc = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
         let format = Format::B8G8R8A8_SRGB;
-        let render_image = ImageView::new_default(
-            Image::new(
-                allocator.clone(),
-                ImageCreateInfo {
-                    extent: [width, height, 1],
-                    format,
-                    usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_SRC,
-                    ..Default::default()
-                },
-                Default::default(),
-            )
-            .map_err(|e| format!("Failed to create render image: {}", e))?,
-        )
-        .map_err(|e| format!("Failed to create render image view: {}", e))?;
 
-        // Create staging buffer for reading pixels
-        let buffer_size = (width * height * 4) as u64;
-        let staging_buffer = Buffer::new_slice::<u8>(
-            allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_DST,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::HOST_RANDOM_ACCESS,
-                ..Default::default()
-            },
-            buffer_size,
-        )
-        .map_err(|e| format!("Failed to create staging buffer: {}", e))?;
+        let final_image = ImageView::new_default(Image::new(alloc.clone(), ImageCreateInfo { image_type: ImageType::Dim2d, format, extent: [width, height, 1], usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_SRC | ImageUsage::SAMPLED, ..Default::default() }, Default::default()).unwrap()).unwrap();
+        let depth_buffer = ImageView::new_default(Image::new(alloc.clone(), ImageCreateInfo { image_type: ImageType::Dim2d, format: Format::D16_UNORM, extent: [width, height, 1], usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT, ..Default::default() }, Default::default()).unwrap()).unwrap();
+        let staging_buffer = Buffer::new_slice::<u8>(alloc, BufferCreateInfo { usage: BufferUsage::TRANSFER_DST, ..Default::default() }, AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::HOST_RANDOM_ACCESS, ..Default::default() }, (width * height * 4) as u64).unwrap();
 
-        // Create NoteRenderer using the new offscreen constructor
-        let note_renderer = NoteRenderer::new_offscreen(device.clone(), queue.clone(), format);
-
-        // Create keyboard layout
-        let keyboard_layout = KeyboardLayout::new(&KeyboardParams::default());
-
+        let ppp = ((height as f32 / 1080.0) * 1.5).max(1.0);
         Ok(Self {
-            device,
-            queue,
-            cb_allocator,
-            render_image,
-            staging_buffer,
-            note_renderer,
-            keyboard_layout,
-            width,
-            height,
-            nps_history: VecDeque::new(),
-            static_keyboard_buffer: Vec::new(),
-            last_cache_params: None,
-            overlay_cache: super::overlay_renderer::OverlayCache::new(),
+            device: device.clone(), queue: queue.clone(),
+            cb_allocator: Arc::new(StandardCommandBufferAllocator::new(device.clone(), Default::default())),
+            egui_renderer: EguiRenderer::new(device.clone(), queue.clone(), format, width, height, ppp),
+            note_renderer: NoteRenderer::new_offscreen(device, queue, format),
+            gui_keyboard: GuiKeyboard::new(), keyboard_layout: KeyboardLayout::new(&Default::default()),
+            stats: GuiMidiStats::empty(), nps_counter: NpsCounter::default(), ppp, final_image, depth_buffer, staging_buffer,
         })
     }
 
-    /// Render a frame into the provided buffer (BGRA format)
-    /// The buffer is cleared and filled with new frame data
-    pub fn render_frame_into(
-        &mut self,
-        target_buffer: &mut Vec<u8>,
-        midi_file: &mut impl MIDIFile,
-        view_range: f64,
-        settings: &WasabiSettings,
-        current_time: f64,
-    ) -> Result<(), String> {
-        // Get keyboard view directly to avoid borrow conflict
-        let first_key = *settings.scene.key_range.start() as usize;
-        let last_key = *settings.scene.key_range.end() as usize;
-        let key_view = self.keyboard_layout.get_view_for_keys(first_key, last_key);
+    pub fn render_frame_into(&mut self, output: &mut [u8], midi: &mut impl MIDIFile, range: f32, settings: &WasabiSettings, time: f64) -> Result<(), String> {
+        let extent = self.final_image.image().extent();
+        let (w, h) = (extent[0], extent[1]);
+        let k_h = h as f32 * 0.15;
+        let n_h = h as f32 - k_h;
 
-        // Get bar color from settings
-        let bar = settings.scene.bar_color;
-        let bar_color = [bar.b(), bar.g(), bar.r(), bar.a()]; // BGRA
-
-        // Update Static Keyboard Cache if needed
-        let cache_key = (first_key, last_key, self.width, self.height, bar_color);
-        let cache_valid = self.last_cache_params.map_or(false, |p| p == cache_key);
-
-        // Calculate keyboard height
-        let keyboard_height = (11.6 / key_view.visible_range.len() as f32 * self.width as f32)
-            .min(self.height as f32 / 2.0);
-
-        // Calculate buffer size for keyboard area only
-        let keyboard_buffer_size = (self.width * (keyboard_height as u32) * 4) as usize;
-
-        if !cache_valid {
-            // Resize buffer to fit ONLY the keyboard area
-            if self.static_keyboard_buffer.len() != keyboard_buffer_size {
-                self.static_keyboard_buffer.resize(keyboard_buffer_size, 0);
-            }
-
-            // Render static keyboard to cache.
-            // We treat the buffer as if it has height = keyboard_height.
-            // This aligns the drawing to the top of our cache buffer (which corresponds to rect_top in full frame)
-            super::keyboard_renderer::render_static_keyboard(
-                &mut self.static_keyboard_buffer,
-                self.width,
-                keyboard_height as u32, // Treat height as just the keyboard height
-                keyboard_height as u32,
-                &key_view,
-                bar_color,
-            );
-
-            self.last_cache_params = Some(cache_key);
-            println!(
-                "[OffscreenRenderer] Updated keyboard cache (Range: {}-{})",
-                first_key, last_key
-            );
-        }
-
-        let notes_height = self.height as f32 - keyboard_height;
-
-        // Adjust view_range to account for keyboard taking up part of the screen
-        let adjusted_view_range = view_range * (notes_height as f64 / self.height as f64);
-
-        // Get background color from settings
+        let key_view = self.keyboard_layout.get_view_for_keys(*settings.scene.key_range.start() as usize, *settings.scene.key_range.end() as usize);
         let bg = settings.scene.bg_color;
-        let bg_color = Some([
-            (bg.r() as f32 / 255.0).powf(2.2),
-            (bg.g() as f32 / 255.0).powf(2.2),
-            (bg.b() as f32 / 255.0).powf(2.2),
-            bg.a() as f32 / 255.0,
-        ]);
+        let to_l = |s: f32| if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) };
+        let bg_color = Some([to_l(bg.r() as f32 / 255.0), to_l(bg.g() as f32 / 255.0), to_l(bg.b() as f32 / 255.0), 1.0]);
 
-        // Create viewport for notes (excluding keyboard area)
-        let viewport = vulkano::pipeline::graphics::viewport::Viewport {
-            offset: [0.0, 0.0],
-            extent: [self.width as f32, notes_height],
-            depth_range: 0.0..=1.0,
-        };
+        let vp = vulkano::pipeline::graphics::viewport::Viewport { offset: [0.0, 0.0], extent: [w as f32, n_h], depth_range: 0.0..=1.0 };
+        let res = self.note_renderer.draw(&key_view, self.final_image.clone(), midi, range as f64, bg_color, Some(vp));
+        
+        self.stats.set_rendered_note_count(res.notes_rendered);
+        self.stats.set_polyphony(res.polyphony);
+        if let Some(len) = midi.midi_length() { self.stats.time_total = len; }
+        self.stats.time_passed = time;
+        self.stats.note_stats = midi.stats();
+        self.nps_counter.tick(self.stats.note_stats.passed_notes.unwrap_or(0) as i64);
+        self.stats.nps = self.nps_counter.read();
 
-        // Render notes to the image
-        let result = self.note_renderer.draw(
-            &key_view,
-            self.render_image.clone(),
-            midi_file,
-            adjusted_view_range,
-            bg_color,
-            Some(viewport),
-        );
+        self.egui_renderer.begin_frame(time);
+        let ctx = self.egui_renderer.context();
+        let (w_p, k_h_p, n_h_p) = (w as f32 / self.ppp, k_h / self.ppp, n_h / self.ppp);
+        
+        egui::Area::new("k".into()).fixed_pos(Pos2::new(0.0, n_h_p)).show(ctx, |ui| {
+             ui.allocate_ui(egui::Vec2::new(w_p, k_h_p), |ui| {
+                 self.gui_keyboard.draw(ui, &key_view, &res.key_colors, &settings.scene.bar_color);
+             });
+        });
+        draw_stats_panel(ctx, Pos2::new(10.0, 10.0), &self.stats, settings, true);
 
-        // Copy image to staging buffer
-        let mut builder = AutoCommandBufferBuilder::primary(
-            self.cb_allocator.clone(),
-            self.queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .map_err(|e| format!("Failed to create command buffer: {}", e))?;
-
-        builder
-            .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
-                self.render_image.image().clone(),
-                self.staging_buffer.clone(),
-            ))
-            .map_err(|e| format!("Failed to copy image to buffer: {}", e))?;
-
-        let command_buffer = builder
-            .build()
-            .map_err(|e| format!("Failed to build command buffer: {}", e))?;
-
-        // Execute and wait
-        let future = sync::now(self.device.clone())
-            .then_execute(self.queue.clone(), command_buffer)
-            .map_err(|e| format!("Failed to execute command buffer: {}", e))?
-            .then_signal_fence_and_flush()
-            .map_err(|e| format!("Failed to signal fence: {}", e))?;
-
-        future
-            .wait(None)
-            .map_err(|e| format!("Failed to wait for fence: {}", e))?;
-
-        // Read pixels from staging buffer
-        let buffer_content = self
-            .staging_buffer
-            .read()
-            .map_err(|e| format!("Failed to read staging buffer: {}", e))?;
-
-        // Copy content to target buffer
-        target_buffer.clear();
-        target_buffer.extend_from_slice(&buffer_content);
-
-        // Blit static keyboard from cache
-        // The cache now ONLY contains the keyboard area.
-        let start_y = (self.height as f32 - keyboard_height) as u32;
-        let start_idx = (start_y * self.width * 4) as usize;
-
-        if start_idx < target_buffer.len() {
-            let target_slice = &mut target_buffer[start_idx..];
-            let source_slice = &self.static_keyboard_buffer;
-            // Ensure we don't overflow (shouldn't handle resizing race conditions, but safety first)
-            let len = target_slice.len().min(source_slice.len());
-            target_slice[..len].copy_from_slice(&source_slice[..len]);
-        }
-
-        // Calculate dirty black keys (Optimization)
-        // We only redraw black keys if they are pressed OR if a neighbor white key is pressed
-        let mut dirty_keys = HashSet::new();
-
-        for (i, color) in result.key_colors.iter().enumerate() {
-            if color.is_some() {
-                if is_black_key(i) {
-                    dirty_keys.insert(i);
-                } else {
-                    // White key pressed: mark neighbors if they are black
-                    if i > 0 && is_black_key(i - 1) {
-                        dirty_keys.insert(i - 1);
-                    }
-                    // Note: keys_len is usually 128, but strictly we check i < 127
-                    if i < 127 && is_black_key(i + 1) {
-                        dirty_keys.insert(i + 1);
-                    }
-                }
-            }
-        }
-
-        // Render pressed keys on top
-        super::keyboard_renderer::render_pressed_keys(
-            target_buffer,
-            self.width,
-            self.height,
-            keyboard_height as u32,
-            &key_view,
-            &result.key_colors,
-            &dirty_keys,
-            bar_color, // Pass bar color for black key gap fixing
-        );
-
-        // Calculate NPS using history
-        let file_stats = midi_file.stats();
-        let total_passed = file_stats.passed_notes.unwrap_or(0);
-
-        self.nps_history.push_back((current_time, total_passed));
-
-        // Remove old entries (> 1.0s ago)
-        while self
-            .nps_history
-            .front()
-            .map_or(false, |&(t, _)| current_time - t > 1.0)
-        {
-            self.nps_history.pop_front();
-        }
-
-        let nps = if let (Some(&(start_t, start_n)), Some(&(end_t, end_n))) =
-            (self.nps_history.front(), self.nps_history.back())
-        {
-            let dt = end_t - start_t;
-            if dt > 0.1 {
-                // Require at least 0.1s of data to show meaningful NPS
-                ((end_n - start_n) as f64 / dt).round() as u64
-            } else {
-                0
-            }
-        } else {
-            0
-        };
-
-        // Construct stats for overlay
-        let mut stats = GuiMidiStats::empty();
-        stats.set_rendered_note_count(result.notes_rendered);
-        stats.set_polyphony(result.polyphony);
-
-        // Render overlay
-        super::overlay_renderer::draw_overlay(
-            target_buffer,
-            self.width,
-            self.height,
-            midi_file,
-            current_time,
-            &stats,
-            nps,
-            settings,
-            &mut self.overlay_cache,
-        );
-
+        let mut builder = AutoCommandBufferBuilder::primary(self.cb_allocator.clone(), self.queue.queue_family_index(), CommandBufferUsage::OneTimeSubmit).map_err(|e| e.to_string())?;
+        self.egui_renderer.end_frame(&mut builder, self.final_image.clone(), self.depth_buffer.clone());
+        
+        builder.copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(self.final_image.image().clone(), self.staging_buffer.clone())).unwrap();
+        let future = sync::now(self.device.clone()).then_execute(self.queue.clone(), builder.build().unwrap()).unwrap().then_signal_fence_and_flush().unwrap();
+        future.wait(None).unwrap();
+        
+        let content = self.staging_buffer.read().unwrap();
+        output.copy_from_slice(&content);
         Ok(())
     }
 }

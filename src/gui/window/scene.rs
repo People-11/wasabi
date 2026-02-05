@@ -116,7 +116,7 @@ impl GuiRenderScene {
             MIDIFileUnion::Pie(file) => self
                 .draw_system
                 .get_pie_renderer(state.renderer)
-                .draw(key_view, frame, file, view_range, None),
+                .draw(key_view, frame, file, view_range),
         };
 
         let img = Image::new((scene_image.id, [size[0] as f32, size[1] as f32].into()));

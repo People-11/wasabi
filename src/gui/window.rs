@@ -1,5 +1,5 @@
 pub mod fps;
-mod keyboard;
+pub mod keyboard;
 pub mod keyboard_layout;
 pub mod scene;
 pub mod stats;

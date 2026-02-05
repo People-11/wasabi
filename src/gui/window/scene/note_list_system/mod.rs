@@ -1,4 +1,4 @@
-mod notes_render_pass;
+pub mod notes_render_pass;
 
 use std::{cell::UnsafeCell, sync::Arc};
 
