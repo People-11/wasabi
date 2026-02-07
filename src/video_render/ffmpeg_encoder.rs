@@ -42,6 +42,7 @@ impl FFmpegEncoder {
         let mut cmd = Command::new(path);
         cmd.args(["-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pixel_format", "bgra", "-video_size", &format!("{w}x{h}"), "-framerate", &fps.to_string(), "-i", "-"]);
         if enc == Encoder::Vaapi { cmd.args(["-vf", "format=nv12,hwupload"]); }
+        if enc == Encoder::Qsv { cmd.args(["-pix_fmt", "nv12"]); }
         cmd.args(["-c:v", enc.codec()]).args(enc.args(q, fps)).args(["-y", "-movflags", "+faststart", out.to_str().unwrap()]);
         cmd.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped());
         #[cfg(windows)] { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
