@@ -26,15 +26,15 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
     let mut encoder = FFmpegEncoder::new(&config.ffmpeg_path, &config.output_path, w, h, fps, config.quality).map_err(|e| format!("FFmpeg error: {e}"))?;
 
     let range = config.settings.scene.note_speed as f32;
-    renderer.render_frame_into(&mut vec![0u8; (w * h * 4) as usize], &mut midi, range, &config.settings, -config.start_delay).ok();
+    renderer.render_frame_into(&mut midi, range, &config.settings, -config.start_delay, |_| Ok(())).ok();
 
     let (mut time, mut frame_num) = (-config.start_delay, 0u64);
     while time < midi_len + 2.0 {
         if progress.is_cancelled.load(Ordering::Relaxed) { return encoder.cancel().map_err(|e| e.to_string()); }
         midi.timer_mut().seek(Duration::seconds_f64(time));
-        let mut buf = encoder.get_buffer();
-        renderer.render_frame_into(&mut buf, &mut midi, range, &config.settings, time)?;
-        encoder.write_frame(buf).map_err(|e| format!("Write error: {e}"))?;
+        renderer.render_frame_into(&mut midi, range, &config.settings, time, |frame| {
+            encoder.write_frame_slice(frame).map_err(|e| format!("Write error: {e}"))
+        })?;
         frame_num += 1;
         progress.current_frame.store(frame_num, Ordering::Relaxed);
         if frame_num % 100 == 0 { println!("[RenderLoop] Progress: {:.1}% ({frame_num}/{total_frames})", (frame_num as f64 / total_frames as f64) * 100.0); }

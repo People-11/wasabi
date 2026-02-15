@@ -13,7 +13,7 @@ impl Encoder {
     fn codec(&self) -> &'static str { match self { Self::Nvenc => "hevc_nvenc", Self::Vaapi => "hevc_vaapi", Self::Qsv => "hevc_qsv", Self::Amf => "hevc_amf", Self::Soft => "libx265" } }
     fn args(&self, q: u8, fps: u32) -> Vec<String> {
         match self {
-            Self::Nvenc => vec!["-preset", "p7", "-tune", "hq", "-rc", "constqp", "-qp", &q.to_string(), "-spatial-aq", "1", "-temporal-aq", "1", "-rc-lookahead", &(fps/2).to_string()].iter().map(|s| s.to_string()).collect(),
+            Self::Nvenc => vec!["-preset", "p7", "-tune", "hq", "-rc", "constqp", "-qp", &q.to_string(), "-spatial-aq", "1", "-temporal-aq", "1", "-rc-lookahead", &(fps/4).to_string()].iter().map(|s| s.to_string()).collect(),
             Self::Vaapi => vec!["-rc_mode", "CQP", "-qp", &q.to_string()].iter().map(|s| s.to_string()).collect(),
             Self::Amf => vec!["-quality", "quality", "-rc", "cqp", "-qp_i", &q.to_string(), "-qp_p", &q.to_string()].iter().map(|s| s.to_string()).collect(),
             Self::Qsv => vec!["-preset", "veryslow", "-global_quality", &q.to_string(), "-look_ahead", "1"].iter().map(|s| s.to_string()).collect(),
@@ -48,7 +48,7 @@ impl FFmpegEncoder {
         #[cfg(windows)] { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
 
         let mut proc = cmd.spawn()?;
-        let (tx, rx) = mpsc::sync_channel::<Msg>(60);
+        let (tx, rx) = mpsc::sync_channel::<Msg>(4);
         let (re_tx, re_rx) = mpsc::channel();
         let thread = thread::spawn(move || {
             let mut stdin = proc.stdin.take().unwrap();
@@ -65,13 +65,13 @@ impl FFmpegEncoder {
         Ok(Self { sender: Some(tx), recycle: re_rx, thread: Some(thread), w, h })
     }
 
-    pub fn get_buffer(&self) -> Vec<u8> {
+    pub fn write_frame_slice(&mut self, data: &[u8]) -> std::io::Result<()> {
         let size = (self.w * self.h * 4) as usize;
-        self.recycle.try_recv().map(|mut b| { if b.len() != size { b.resize(size, 0); } b }).unwrap_or_else(|_| vec![0u8; size])
-    }
-
-    pub fn write_frame(&mut self, data: Vec<u8>) -> std::io::Result<()> {
-        self.sender.as_ref().unwrap().send(Msg::Frame(data)).map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed"))
+        let mut buf = self.recycle.try_recv()
+            .map(|mut b| { b.resize(size, 0); b })
+            .unwrap_or_else(|_| vec![0u8; size]);
+        buf.copy_from_slice(data);
+        self.sender.as_ref().unwrap().send(Msg::Frame(buf)).map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed"))
     }
 
     pub fn finish(&mut self) -> std::io::Result<()> {

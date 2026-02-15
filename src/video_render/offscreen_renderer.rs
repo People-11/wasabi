@@ -77,7 +77,7 @@ impl OffscreenRenderer {
         })
     }
 
-    pub fn render_frame_into(&mut self, output: &mut [u8], midi_union: &mut MIDIFileUnion, range: f32, settings: &WasabiSettings, time: f64) -> Result<(), String> {
+    pub fn render_frame_into(&mut self, midi_union: &mut MIDIFileUnion, range: f32, settings: &WasabiSettings, time: f64, consume: impl FnOnce(&[u8]) -> Result<(), String>) -> Result<(), String> {
         let extent = self.final_image.image().extent();
         let (w, h) = (extent[0], extent[1]);
         let k_h = h as f32 * 0.15;
@@ -124,7 +124,6 @@ impl OffscreenRenderer {
         future.wait(None).unwrap();
         
         let content = self.staging_buffer.read().unwrap();
-        output.copy_from_slice(&content);
-        Ok(())
+        consume(&content)
     }
 }
