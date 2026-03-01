@@ -12,12 +12,13 @@ enum Encoder { Nvenc, Vaapi, Amf, Qsv, Soft }
 impl Encoder {
     fn codec(&self) -> &'static str { match self { Self::Nvenc => "hevc_nvenc", Self::Vaapi => "hevc_vaapi", Self::Qsv => "hevc_qsv", Self::Amf => "hevc_amf", Self::Soft => "libx265" } }
     fn args(&self, q: u8, fps: u32) -> Vec<String> {
+        let q = q.to_string();
         match self {
-            Self::Nvenc => vec!["-preset", "p7", "-tune", "hq", "-rc", "constqp", "-qp", &q.to_string(), "-spatial-aq", "1", "-temporal-aq", "1", "-rc-lookahead", &(fps/4).to_string()].iter().map(|s| s.to_string()).collect(),
-            Self::Vaapi => vec!["-rc_mode", "CQP", "-qp", &q.to_string()].iter().map(|s| s.to_string()).collect(),
-            Self::Amf => vec!["-quality", "quality", "-rc", "cqp", "-qp_i", &q.to_string(), "-qp_p", &q.to_string()].iter().map(|s| s.to_string()).collect(),
-            Self::Qsv => vec!["-preset", "veryslow", "-global_quality", &q.to_string(), "-look_ahead", "1"].iter().map(|s| s.to_string()).collect(),
-            Self::Soft => vec!["-crf", &q.to_string(), "-preset", "medium"].iter().map(|s| s.to_string()).collect(),
+            Self::Nvenc => vec!["-preset", "p7", "-tune", "hq", "-rc", "constqp", "-qp", &q, "-spatial-aq", "1", "-temporal-aq", "1", "-rc-lookahead", &(fps/4).to_string()].into_iter().map(str::to_string).collect(),
+            Self::Vaapi => vec!["-rc_mode", "CQP", "-qp", &q].into_iter().map(str::to_string).collect(),
+            Self::Amf => vec!["-quality", "quality", "-rc", "cqp", "-qp_i", &q, "-qp_p", &q].into_iter().map(str::to_string).collect(),
+            Self::Qsv => vec!["-preset", "veryslow", "-global_quality", &q, "-look_ahead", "1"].into_iter().map(str::to_string).collect(),
+            Self::Soft => vec!["-crf", &q, "-preset", "medium"].into_iter().map(str::to_string).collect(),
         }
     }
 }
@@ -75,11 +76,9 @@ impl FFmpegEncoder {
     }
 
     pub fn finish(&mut self) -> std::io::Result<()> {
-        self.sender.take().map(|s| s.send(Msg::Finish));
+        if let Some(s) = self.sender.take() { let _ = s.send(Msg::Finish); }
         self.thread.take().map(|t| t.join().unwrap()).unwrap_or(Ok(()))
     }
-
-    pub fn cancel(&mut self) -> std::io::Result<()> { self.finish() }
 }
 
 impl Drop for FFmpegEncoder { fn drop(&mut self) { let _ = self.finish(); } }
