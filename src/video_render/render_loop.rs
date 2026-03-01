@@ -21,16 +21,16 @@ fn run_render_loop(config: RenderConfig, progress: RenderProgress) -> Result<(),
     let midi_len = loop { if let Some(l) = midi.midi_length() { break l; } thread::sleep(std::time::Duration::from_millis(100)); };
     progress.is_parsing.store(false, Ordering::Relaxed);
 
-    let total_frames = ((midi_len + config.start_delay + 2.0) * fps as f64).ceil() as u64;
+    let total_frames = ((midi_len + config.settings.midi.start_delay + 2.0) * fps as f64).ceil() as u64;
     progress.total_frames.store(total_frames, Ordering::Relaxed);
     let mut encoder = FFmpegEncoder::new(&config.ffmpeg_path, &config.output_path, w, h, fps, config.quality).map_err(|e| format!("FFmpeg error: {e}"))?;
 
     let range = config.settings.scene.note_speed as f32;
-    renderer.render_frame_into(&mut midi, range, &config.settings, -config.start_delay, |_| Ok(())).ok();
+    renderer.render_frame_into(&mut midi, range, &config.settings, -config.settings.midi.start_delay, |_| Ok(())).ok();
 
-    let (mut time, mut frame_num) = (-config.start_delay, 0u64);
+    let (mut time, mut frame_num) = (-config.settings.midi.start_delay, 0u64);
     while time < midi_len + 2.0 {
-        if progress.is_cancelled.load(Ordering::Relaxed) { return encoder.cancel().map_err(|e| e.to_string()); }
+        if progress.is_cancelled.load(Ordering::Relaxed) { return encoder.finish().map_err(|e| e.to_string()); }
         midi.timer_mut().seek(Duration::seconds_f64(time));
         renderer.render_frame_into(&mut midi, range, &config.settings, time, |frame| {
             encoder.write_frame_slice(frame).map_err(|e| format!("Write error: {e}"))

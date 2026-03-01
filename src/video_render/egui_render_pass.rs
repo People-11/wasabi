@@ -54,7 +54,7 @@ pub struct EguiRenderer {
     allocator: Arc<StandardMemoryAllocator>,
     sd_allocator: Arc<StandardDescriptorSetAllocator>,
     white_texture: Arc<ImageView>,
-    width: u32, height: u32, ppp: f32, // Stored to re-apply every frame after take()
+    ppp: f32,
 }
 
 impl EguiRenderer {
@@ -123,14 +123,13 @@ impl EguiRenderer {
             format: Format::R8G8B8A8_UNORM, extent: [1, 1, 1], usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED, ..Default::default()
         }, Default::default()).unwrap()).unwrap();
 
-        Self { context, raw_input, render_pass, pipeline, font_texture: None, sampler, allocator, sd_allocator, white_texture, width, height, ppp }
+        Self { context, raw_input, render_pass, pipeline, font_texture: None, sampler, allocator, sd_allocator, white_texture, ppp }
     }
 
     pub fn context(&self) -> &Context { &self.context }
 
     pub fn begin_frame(&mut self, time: f64) {
         self.raw_input.time = Some(time);
-        self.raw_input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(self.width as f32 / self.ppp, self.height as f32 / self.ppp)));
         self.context.begin_pass(self.raw_input.take());
     }
 

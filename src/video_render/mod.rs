@@ -22,7 +22,6 @@ pub struct RenderConfig {
     pub frame_rate: RenderFrameRate,
     pub parse_mode: ParseMode,
     pub quality: u8,
-    pub start_delay: f64,
     pub settings: WasabiSettings,
 }
 
@@ -45,7 +44,6 @@ impl RenderConfig {
             frame_rate,
             parse_mode,
             quality,
-            start_delay: settings.midi.start_delay,
             settings,
         }
     }
