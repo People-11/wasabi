@@ -183,7 +183,7 @@ impl Default for RenderState {
             resolution: RenderResolution::default(),
             frame_rate: RenderFrameRate::default(),
             parse_mode: ParseMode::default(),
-            quality: 28,
+            quality: 32,
             is_rendering: false,
             progress: RenderProgress::default(),
         }
