@@ -135,6 +135,28 @@ impl MIDIColor {
         vec![MIDIColor::new(255, 255, 255); count]
     }
 
+    pub fn new_pfa_vec(tracks: usize) -> Vec<Self> {
+        let mut base_colors = [MIDIColor::default(); 16];
+        for count in 0..16 {
+            let i = (10 + count * 7) % 16;
+            let hue = 360.0 * i as f64 / 16.0;
+            let hsv: Hsv<Srgb, f64> = palette::Hsv::new(hue, 0.73, 0.87);
+            let rgb = palette::rgb::Rgb::from_color_unclamped(hsv);
+            base_colors[count] = Self::new(
+                (rgb.red * 255.0) as u8,
+                (rgb.green * 255.0) as u8,
+                (rgb.blue * 255.0) as u8,
+            );
+        }
+        base_colors.swap(2, 4);
+        let total = tracks * 16;
+        let mut vec = Vec::with_capacity(total);
+        for i in 0..total {
+            vec.push(base_colors[i % 16]);
+        }
+        vec
+    }
+
     pub fn new_vec_from_palette(tracks: usize, image: DynamicImage, randomize: bool) -> Vec<Self> {
         let image = image.to_rgb8();
         let all_colors = image.pixels().map(|p| Self::new(p.0[0], p.0[1], p.0[2]));
@@ -161,6 +183,7 @@ impl MIDIColor {
             Colors::Rainbow => Ok(MIDIColor::new_vec(tracks)),
             Colors::Random => Ok(MIDIColor::new_random_vec(tracks)),
             Colors::White => Ok(MIDIColor::new_white_vec(tracks)),
+            Colors::PianoFromAbove => Ok(MIDIColor::new_pfa_vec(tracks)),
             Colors::Palette => {
                 let path = &settings.palette_path;
                 if path.exists() {

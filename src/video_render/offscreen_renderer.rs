@@ -34,6 +34,10 @@ pub struct OffscreenRenderer {
     final_image: Arc<ImageView>,
     depth_buffer: Arc<ImageView>,
     staging_buffer: Subbuffer<[u8]>,
+    width: u32,
+    keyboard_height: f32,
+    notes_height: f32,
+    viewport: vulkano::pipeline::graphics::viewport::Viewport,
 }
 
 impl OffscreenRenderer {
@@ -67,6 +71,14 @@ impl OffscreenRenderer {
             SceneRenderer::Note(NoteRenderer::new(device.clone(), queue.clone(), format))
         };
 
+        let keyboard_height = height as f32 * 0.15;
+        let notes_height = height as f32 - keyboard_height;
+        let viewport = vulkano::pipeline::graphics::viewport::Viewport {
+            offset: [0.0, 0.0],
+            extent: [width as f32, notes_height],
+            depth_range: 0.0..=1.0,
+        };
+
         Ok(Self {
             device: device.clone(), queue: queue.clone(),
             cb_allocator: Arc::new(StandardCommandBufferAllocator::new(device.clone(), Default::default())),
@@ -74,26 +86,26 @@ impl OffscreenRenderer {
             scene_renderer,
             gui_keyboard: GuiKeyboard::new(), keyboard_layout: KeyboardLayout::new(&Default::default()),
             stats: GuiMidiStats::empty(), nps_counter: NpsCounter::default(), ppp, final_image, depth_buffer, staging_buffer,
+            width, keyboard_height, notes_height, viewport,
         })
     }
 
     pub fn render_frame_into(&mut self, midi_union: &mut MIDIFileUnion, range: f32, settings: &WasabiSettings, time: f64, consume: impl FnOnce(&[u8]) -> Result<(), String>) -> Result<(), String> {
-        let extent = self.final_image.image().extent();
-        let (w, h) = (extent[0], extent[1]);
-        let k_h = h as f32 * 0.15;
-        let n_h = h as f32 - k_h;
-
         let key_view = self.keyboard_layout.get_view_for_keys(*settings.scene.key_range.start() as usize, *settings.scene.key_range.end() as usize);
         let bg = settings.scene.bg_color;
-        let to_l = |s: f32| if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) };
-        let bg_color = Some([to_l(bg.r() as f32 / 255.0), to_l(bg.g() as f32 / 255.0), to_l(bg.b() as f32 / 255.0), 1.0]);
 
-        let vp = vulkano::pipeline::graphics::viewport::Viewport { offset: [0.0, 0.0], extent: [w as f32, n_h], depth_range: 0.0..=1.0 };
-        
+        let srgb_to_linear = |s: f32| if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) };
+        let bg_color = Some([
+            srgb_to_linear(bg.r() as f32 / 255.0),
+            srgb_to_linear(bg.g() as f32 / 255.0),
+            srgb_to_linear(bg.b() as f32 / 255.0),
+            1.0
+        ]);
+
         let res = match (&mut *midi_union, &mut self.scene_renderer) {
-            (MIDIFileUnion::Pie(m), SceneRenderer::Pie(r)) => r.draw(&key_view, self.final_image.clone(), m, range as f64, bg_color, Some(vp)),
-            (MIDIFileUnion::Live(m), SceneRenderer::Note(r)) => r.draw(&key_view, self.final_image.clone(), m, range as f64, bg_color, Some(vp)),
-            (MIDIFileUnion::InRam(m), SceneRenderer::Note(r)) => r.draw(&key_view, self.final_image.clone(), m, range as f64, bg_color, Some(vp)),
+            (MIDIFileUnion::Pie(m), SceneRenderer::Pie(r)) => r.draw(&key_view, self.final_image.clone(), m, range as f64, bg_color, Some(self.viewport.clone())),
+            (MIDIFileUnion::Live(m), SceneRenderer::Note(r)) => r.draw(&key_view, self.final_image.clone(), m, range as f64, bg_color, Some(self.viewport.clone())),
+            (MIDIFileUnion::InRam(m), SceneRenderer::Note(r)) => r.draw(&key_view, self.final_image.clone(), m, range as f64, bg_color, Some(self.viewport.clone())),
             _ => return Err("Mismatched renderer and MIDI mode".into()),
         };
         
@@ -107,8 +119,8 @@ impl OffscreenRenderer {
 
         self.egui_renderer.begin_frame(time);
         let ctx = self.egui_renderer.context();
-        let (w_p, k_h_p, n_h_p) = (w as f32 / self.ppp, k_h / self.ppp, n_h / self.ppp);
-        
+        let (w_p, k_h_p, n_h_p) = (self.width as f32 / self.ppp, self.keyboard_height / self.ppp, self.notes_height / self.ppp);
+
         egui::Area::new("k".into()).fixed_pos(Pos2::new(0.0, n_h_p)).show(ctx, |ui| {
              ui.allocate_ui(egui::Vec2::new(w_p, k_h_p), |ui| {
                  self.gui_keyboard.draw(ui, &key_view, &res.key_colors, &settings.scene.bar_color);

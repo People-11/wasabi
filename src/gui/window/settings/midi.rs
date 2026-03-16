@@ -32,9 +32,9 @@ impl SettingsWindow {
                         "\
                     - Pie\n\
                   \0    Modified version of Cake.\n\
-                  \0    Flattened tree structure, uses a linear memory layout.\n\
-                  \0    May offer faster loading speeds and reduced RAM usage\n\
-                  \0    but might lag when randomly accessing MIDI.\n\
+                  \0    Flattened tree structure, linear memory layout.\n\
+                  \0    Use SSBO instead of an array of 256 buffers .\n\
+                  \0    Faster loading, less RAM usage, 2x FPS.\n\
                     - Cake\n\
                   \0    The most efficient loading and displaying algorithm.\n\
                   \0    The notes will be stored in binary trees and will be\n\
@@ -147,6 +147,19 @@ impl SettingsWindow {
                                     .clicked()
                                 {
                                     settings.midi.colors = Colors::White;
+                                }
+                            });
+                        });
+                        body.row(row_height, |mut row| {
+                            row.col(|ui| {
+                                if ui
+                                    .selectable_label(
+                                        settings.midi.colors == Colors::PianoFromAbove,
+                                        Colors::PianoFromAbove.as_str(),
+                                    )
+                                    .clicked()
+                                {
+                                    settings.midi.colors = Colors::PianoFromAbove;
                                 }
                             });
                         });
