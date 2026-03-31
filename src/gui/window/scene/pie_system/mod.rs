@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use vulkano::command_buffer::CopyBufferInfo;
 
 use bytemuck::{Pod, Zeroable};
 use vulkano::{
@@ -60,10 +61,11 @@ struct PieNoteColumn {
 }
 
 struct PieBatch {
-    buffer: Subbuffer<[i32]>,
+    _buffer: Subbuffer<[i32]>,
     start_key: usize,
     end_key: usize,
     base_offset: usize,
+    descriptor_set: Arc<DescriptorSet>,
 }
 
 pub struct PieRenderer {
@@ -166,68 +168,100 @@ impl PieRenderer {
             let mut current_start_offset = 0;
             let target_batch_size = 128 * 1024 * 1024; // 128MB
 
+            let mut upload_builder = AutoCommandBufferBuilder::primary(
+                self.cb_allocator.clone(),
+                self.gfx_queue.queue_family_index(),
+                CommandBufferUsage::OneTimeSubmit,
+            )
+            .unwrap();
+
+            let mut chunks = Vec::new();
+
             for i in 0..flat_blocks.len() {
                 let info = flat_blocks.get_block_info(i);
                 // 4 bytes per int
                 let size_bytes = info.tree_len * 4;
 
                 if current_batch_size + size_bytes > target_batch_size && current_batch_size > 0 {
-                    // Flush batch
-                    let end_offset = info.tree_offset;
-                    let slice = &flat_blocks.tree_buffer[current_start_offset..end_offset];
-                    let buffer = Buffer::from_iter(
-                        self.allocator.clone(),
-                        BufferCreateInfo {
-                            usage: BufferUsage::STORAGE_BUFFER,
-                            ..Default::default()
-                        },
-                        AllocationCreateInfo {
-                            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                            ..Default::default()
-                        },
-                        slice.iter().copied(),
-                    )
-                    .unwrap();
-
-                    self.batches.push(PieBatch {
-                        buffer,
-                        start_key: current_batch_start,
-                        end_key: i,
-                        base_offset: current_start_offset,
-                    });
-
+                    chunks.push((current_batch_start, i, current_start_offset, info.tree_offset));
                     current_batch_start = i;
                     current_batch_size = 0;
-                    current_start_offset = end_offset;
+                    current_start_offset = info.tree_offset;
                 }
-
                 current_batch_size += size_bytes;
             }
 
-            // Flush final batch
             if current_batch_start < flat_blocks.len() {
-                let slice = &flat_blocks.tree_buffer[current_start_offset..];
-                let buffer = Buffer::from_iter(
+                chunks.push((current_batch_start, flat_blocks.len(), current_start_offset, flat_blocks.tree_buffer.len()));
+            }
+
+            let pipeline_layout = self.pipeline_clear.layout();
+            let desc_layout = pipeline_layout.set_layouts().first().unwrap();
+
+            for (start_key, end_key, start_offset, end_offset) in chunks {
+                let slice = &flat_blocks.tree_buffer[start_offset..end_offset];
+                
+                let staging_buffer = Buffer::new_slice(
                     self.allocator.clone(),
                     BufferCreateInfo {
-                        usage: BufferUsage::STORAGE_BUFFER,
+                        usage: BufferUsage::TRANSFER_SRC,
                         ..Default::default()
                     },
                     AllocationCreateInfo {
                         memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                         ..Default::default()
                     },
-                    slice.iter().copied(),
+                    slice.len() as u64,
+                )
+                .unwrap();
+                staging_buffer.write().unwrap().copy_from_slice(slice);
+
+                let device_buffer = Buffer::new_slice(
+                    self.allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                        ..Default::default()
+                    },
+                    slice.len() as u64,
+                )
+                .unwrap();
+
+                upload_builder
+                    .copy_buffer(CopyBufferInfo::buffers(
+                        staging_buffer.clone(),
+                        device_buffer.clone(),
+                    ))
+                    .unwrap();
+
+                let descriptor_set = DescriptorSet::new(
+                    self.sd_allocator.clone(),
+                    desc_layout.clone(),
+                    [WriteDescriptorSet::buffer(0, device_buffer.clone())],
+                    [],
                 )
                 .unwrap();
 
                 self.batches.push(PieBatch {
-                    buffer,
-                    start_key: current_batch_start,
-                    end_key: flat_blocks.len(),
-                    base_offset: current_start_offset,
+                    _buffer: device_buffer,
+                    start_key,
+                    end_key,
+                    base_offset: start_offset,
+                    descriptor_set,
                 });
             }
+
+            let upload_cb = upload_builder.build().unwrap();
+            let future = sync::now(self.gfx_queue.device().clone())
+                .then_execute(self.gfx_queue.clone(), upload_cb)
+                .unwrap()
+                .then_signal_fence_and_flush()
+                .unwrap();
+            
+            future.wait(None).unwrap();
         }
 
         let midi_time = midi_file.current_time().as_seconds_f64();
@@ -246,16 +280,12 @@ impl PieRenderer {
             key_view.visible_range.len() as f32,
         ) as i32;
 
-
         let clears = vec![
             Some(bg_color.map(|c| ClearValue::from(c)).unwrap_or(ClearValue::from([0.0f32, 0.0, 0.0, 0.0]))),
             Some(ClearValue::from(1.0f32)),
         ];
 
-        let (pipeline, render_pass) = (
-            &self.pipeline_clear,
-            &self.render_pass_clear,
-        );
+        let render_pass = &self.render_pass_clear;
 
         let framebuffer = Framebuffer::new(
             render_pass.clone(),
@@ -265,9 +295,6 @@ impl PieRenderer {
             },
         )
         .unwrap();
-
-        let pipeline_layout = pipeline.layout();
-        let desc_layout = pipeline_layout.set_layouts().first().unwrap();
 
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.cb_allocator.clone(),
@@ -307,20 +334,12 @@ impl PieRenderer {
         let flat_blocks = midi_file.flat_blocks();
 
         for batch in &self.batches {
-            let data_descriptor = DescriptorSet::new(
-                self.sd_allocator.clone(),
-                desc_layout.clone(),
-                [WriteDescriptorSet::buffer(0, batch.buffer.clone())],
-                [],
-            )
-            .unwrap();
-
             command_buffer_builder
                 .bind_descriptor_sets(
                     PipelineBindPoint::Graphics,
                     self.pipeline_clear.layout().clone(),
                     0,
-                    data_descriptor,
+                    batch.descriptor_set.clone(),
                 )
                 .unwrap();
 
