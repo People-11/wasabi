@@ -356,49 +356,40 @@ impl PieRenderer {
                 )
                 .unwrap();
 
-            let mut batch_instances = Vec::new();
+            batch.vbo_idx = (batch.vbo_idx + 1) % 2;
+            let vbo = &batch.vbo_ring[batch.vbo_idx];
+            let mut mapped_vbo = vbo.write().unwrap();
+            let mut written = 0;
 
-            // Black keys
-            for i in batch.start_key..batch.end_key {
-                let key = key_view.note(i);
-                if key.black {
-                    let info = flat_blocks.get_block_info(i);
-                    batch_instances.push(PieNoteColumn {
-                        tree_offset: (info.tree_offset - batch.base_offset) as i32,
-                        border_width,
-                        start: info.start_time as i32,
-                        end: info.end_time as i32,
-                        left: key.left,
-                        right: key.right,
-                    });
+            let mut add_keys = |target_black: bool, written: &mut usize| {
+                for i in batch.start_key..batch.end_key {
+                    let key = key_view.note(i);
+                    if key.black == target_black {
+                        let info = flat_blocks.get_block_info(i);
+                        mapped_vbo[*written] = PieNoteColumn {
+                            tree_offset: (info.tree_offset - batch.base_offset) as i32,
+                            border_width,
+                            start: info.start_time as i32,
+                            end: info.end_time as i32,
+                            left: key.left,
+                            right: key.right,
+                        };
+                        *written += 1;
+                    }
                 }
-            }
-            // White keys
-            for i in batch.start_key..batch.end_key {
-                let key = key_view.note(i);
-                if !key.black {
-                    let info = flat_blocks.get_block_info(i);
-                    batch_instances.push(PieNoteColumn {
-                        tree_offset: (info.tree_offset - batch.base_offset) as i32,
-                        border_width,
-                        start: info.start_time as i32,
-                        end: info.end_time as i32,
-                        left: key.left,
-                        right: key.right,
-                    });
-                }
-            }
+            };
 
-            if !batch_instances.is_empty() {
-                batch.vbo_idx = (batch.vbo_idx + 1) % 2;
-                let vbo = &batch.vbo_ring[batch.vbo_idx];
-                vbo.write().unwrap()[..batch_instances.len()].copy_from_slice(&batch_instances);
+            add_keys(true, &mut written);  // Black keys
+            add_keys(false, &mut written); // White keys
 
+            drop(mapped_vbo);
+
+            if written > 0 {
                 unsafe {
                     command_buffer_builder
                         .bind_vertex_buffers(0, vbo.clone())
                         .unwrap()
-                        .draw(batch_instances.len() as u32, 1, 0, 0)
+                        .draw(written as u32, 1, 0, 0)
                         .unwrap();
                 }
             }
@@ -418,21 +409,22 @@ impl PieRenderer {
         // Calculate the metadata before awaiting the future
         // to keep this more efficient
         let flat_blocks = midi_file.flat_blocks();
-        let colors = (0..flat_blocks.len())
-            .map(|key| flat_blocks.get_note_at(key, screen_start).map(|n| n.color))
-            .collect();
-        let rendered_notes = (0..flat_blocks.len())
-            .map(|key| {
-                let passed = flat_blocks.get_notes_passed_at(key, screen_end)
-                    - flat_blocks.get_notes_passed_at(key, screen_start);
+        let mut colors = Vec::with_capacity(flat_blocks.len());
+        let mut rendered_notes = 0;
 
-                if flat_blocks.get_note_at(key, screen_start).is_some() {
-                    passed as u64 + 1
-                } else {
-                    passed as u64
-                }
-            })
-            .sum();
+        for key in 0..flat_blocks.len() {
+            let active_note = flat_blocks.get_note_at(key, screen_start);
+            colors.push(active_note.map(|n| n.color));
+            
+            let passed = flat_blocks.get_notes_passed_at(key, screen_end)
+                - flat_blocks.get_notes_passed_at(key, screen_start);
+            
+            rendered_notes += if active_note.is_some() {
+                passed as u64 + 1
+            } else {
+                passed as u64
+            };
+        }
 
         render_future
             .then_signal_fence_and_flush()
