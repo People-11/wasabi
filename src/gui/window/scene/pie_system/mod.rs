@@ -66,6 +66,8 @@ struct PieBatch {
     end_key: usize,
     base_offset: usize,
     descriptor_set: Arc<DescriptorSet>,
+    vbo_ring: [Subbuffer<[PieNoteColumn]>; 2],
+    vbo_idx: usize,
 }
 
 pub struct PieRenderer {
@@ -166,7 +168,12 @@ impl PieRenderer {
             let mut current_batch_start = 0;
             let mut current_batch_size = 0;
             let mut current_start_offset = 0;
-            let target_batch_size = 128 * 1024 * 1024; // 128MB
+            let target_batch_size = self
+                .gfx_queue
+                .device()
+                .physical_device()
+                .properties()
+                .max_storage_buffer_range as usize;
 
             let mut upload_builder = AutoCommandBufferBuilder::primary(
                 self.cb_allocator.clone(),
@@ -245,12 +252,18 @@ impl PieRenderer {
                 )
                 .unwrap();
 
+                let vbo_size = (end_key - start_key) as u64;
+                let vbo0 = Buffer::new_slice(self.allocator.clone(), BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() }, AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE, ..Default::default() }, vbo_size).unwrap();
+                let vbo1 = Buffer::new_slice(self.allocator.clone(), BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() }, AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE, ..Default::default() }, vbo_size).unwrap();
+
                 self.batches.push(PieBatch {
                     _buffer: device_buffer,
                     start_key,
                     end_key,
                     base_offset: start_offset,
                     descriptor_set,
+                    vbo_ring: [vbo0, vbo1],
+                    vbo_idx: 0,
                 });
             }
 
@@ -333,7 +346,7 @@ impl PieRenderer {
 
         let flat_blocks = midi_file.flat_blocks();
 
-        for batch in &self.batches {
+        for batch in &mut self.batches {
             command_buffer_builder
                 .bind_descriptor_sets(
                     PipelineBindPoint::Graphics,
@@ -377,25 +390,15 @@ impl PieRenderer {
             }
 
             if !batch_instances.is_empty() {
-                let instance_buffer = Buffer::from_iter(
-                    self.allocator.clone(),
-                    BufferCreateInfo {
-                        usage: BufferUsage::VERTEX_BUFFER,
-                        ..Default::default()
-                    },
-                    AllocationCreateInfo {
-                        memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                        ..Default::default()
-                    },
-                    batch_instances,
-                )
-                .unwrap();
+                batch.vbo_idx = (batch.vbo_idx + 1) % 2;
+                let vbo = &batch.vbo_ring[batch.vbo_idx];
+                vbo.write().unwrap()[..batch_instances.len()].copy_from_slice(&batch_instances);
 
                 unsafe {
                     command_buffer_builder
-                        .bind_vertex_buffers(0, instance_buffer.clone())
+                        .bind_vertex_buffers(0, vbo.clone())
                         .unwrap()
-                        .draw(instance_buffer.len() as u32, 1, 0, 0)
+                        .draw(batch_instances.len() as u32, 1, 0, 0)
                         .unwrap();
                 }
             }
