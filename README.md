@@ -38,6 +38,37 @@ You can build Wasabi yourself by following these steps:
     - Optionally you can add `RUSTFLAGS="-C target-cpu=native"` to your environment before compiling to optimize XSynth for your specific CPU
 - After the compilation is finished, you will find the binary under `./target/release`
 
+### Option C *(MSYS2, no MSVC required)*
+
+If you prefer to build without MSVC or the Vulkan SDK, you can use [MSYS2](https://www.msys2.org/) with the MinGW-w64 toolchain instead.
+
+1. Install MSYS2 and open the **MINGW64** shell.
+
+2. Install the required packages:
+   ```bash
+   pacman -S mingw-w64-x86_64-rust \
+             mingw-w64-x86_64-gcc \
+             mingw-w64-x86_64-cmake \
+             mingw-w64-x86_64-ninja \
+             mingw-w64-x86_64-shaderc \
+             mingw-w64-x86_64-pkgconf \
+             make
+   ```
+
+3. Create a `make` alias (only needed if `make` is not found):
+   ```bash
+   ln -s /mingw64/bin/mingw32-make.exe /mingw64/bin/make.exe
+   ```
+
+4. Clone the repository and build using the provided Makefile:
+   ```bash
+   git clone https://github.com/BlackMIDIDevs/wasabi.git
+   cd wasabi
+   make release
+   ```
+
+- After the compilation is finished, you will find the binary under `./target/release`
+
 ## Usage
 
 - Before you can play a MIDI, you need to add soundfonts to the synthesizer by going to `Menu -> Settings -> SoundFonts`

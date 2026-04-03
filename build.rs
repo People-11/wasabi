@@ -45,10 +45,26 @@ fn main() {
     icon_dir.write(File::create(&icon_path).unwrap()).unwrap();
     #[cfg(windows)]
     {
-        WindowsResource::new()
-            .set_icon(icon_path.to_str().unwrap())
-            .compile()
-            .unwrap();
+        let out_dir = std::env::var("OUT_DIR").unwrap();
+        let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap();
+
+        if target_env == "msvc" {
+            WindowsResource::new()
+                .set_icon(icon_path.to_str().unwrap())
+                .compile()
+                .unwrap();
+        } else {
+            let rc_path = format!("{out_dir}/icon.rc");
+            let res_path = format!("{out_dir}/icon.res.o");
+            std::fs::write(&rc_path, format!("1 ICON \"{}\"\n", icon_path.display().to_string().replace('\\', "/")))
+                .unwrap();
+            let status = std::process::Command::new("windres")
+                .args([&rc_path, "-o", &res_path])
+                .status()
+                .expect("windres not found");
+            assert!(status.success(), "windres failed");
+            println!("cargo:rustc-link-arg={res_path}");
+        }
     }
 
     #[cfg(not(windows))]
