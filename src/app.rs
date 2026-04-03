@@ -6,6 +6,8 @@ use winit::{
     window::{Icon, WindowAttributes, WindowId},
 };
 
+use std::time::{Duration, Instant};
+
 const ICON: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icon_256.bitmap"));
 
 pub struct WasabiApplication {
@@ -15,6 +17,8 @@ pub struct WasabiApplication {
     renderer: Option<Renderer>,
     current_vsync: bool,
     minimized: bool,
+
+    render_timer: Option<Instant>,
 }
 
 impl WasabiApplication {
@@ -40,6 +44,7 @@ impl WasabiApplication {
             renderer: None,
             current_vsync,
             minimized: false,
+            render_timer: None,
         }
     }
 }
@@ -61,11 +66,22 @@ impl ApplicationHandler for WasabiApplication {
         }
     }
 
-    fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: winit::event::StartCause) {
-        if let Some(renderer) = self.renderer.as_mut() {
-            if !self.minimized {
-                renderer.window().request_redraw();
-            }
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: winit::event::StartCause) {
+        let Some(renderer) = self.renderer.as_mut() else { return };
+        if self.minimized { return; }
+
+        let is_rendering = self.state.render_state.is_rendering;
+        let should_redraw = if is_rendering {
+            matches!(
+                cause,
+                winit::event::StartCause::Init | winit::event::StartCause::ResumeTimeReached { .. }
+            ) && self.render_timer.map_or(true, |t| Instant::now() >= t)
+        } else {
+            true
+        };
+
+        if should_redraw {
+            renderer.window().request_redraw();
         }
     }
 
@@ -76,22 +92,23 @@ impl ApplicationHandler for WasabiApplication {
         event: WindowEvent,
     ) {
         if let Some(renderer) = self.renderer.as_mut() {
-            // First process the redraw request
             if matches!(event, WindowEvent::RedrawRequested) {
-                renderer.render(&mut self.settings, &mut self.state);
-                // Use on-demand repainting during video rendering to save CPU
-                if self.state.render_state.is_rendering {
-                    if renderer.gui().context().has_requested_repaint() {
-                        event_loop.set_control_flow(ControlFlow::Poll);
-                        renderer.window().request_redraw();
-                    } else {
-                        event_loop.set_control_flow(ControlFlow::Wait);
-                    }
+                // Sync VSync: Disable during rendering to bypass OS limits, otherwise follow settings.
+                let target_vsync = !self.state.render_state.is_rendering && self.settings.gui.vsync;
+                if self.current_vsync != target_vsync {
+                    renderer.set_vsync(target_vsync);
+                    self.current_vsync = target_vsync;
                 }
-                // Update VSYNC if changed during render
-                if self.settings.gui.vsync != self.current_vsync {
-                    renderer.set_vsync(self.settings.gui.vsync);
-                    self.current_vsync = self.settings.gui.vsync;
+
+                renderer.render(&mut self.settings, &mut self.state);
+
+                if self.state.render_state.is_rendering {
+                    let next = Instant::now() + Duration::from_millis(16);
+                    self.render_timer = Some(next);
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(next));
+                } else {
+                    self.render_timer = None;
+                    event_loop.set_control_flow(if self.minimized { ControlFlow::Wait } else { ControlFlow::Poll });
                 }
                 return;
             }
@@ -104,45 +121,29 @@ impl ApplicationHandler for WasabiApplication {
             let _pass_events_to_game = !renderer.gui().update(&event);
             match event {
                 WindowEvent::Resized(size) => {
-                    if size.width == 0 || size.height == 0 {
-                        self.minimized = true;
+                    self.minimized = size.width == 0 || size.height == 0;
+                    if self.minimized {
                         event_loop.set_control_flow(ControlFlow::Wait);
                     } else {
-                        self.minimized = false;
                         event_loop.set_control_flow(ControlFlow::Poll);
                         renderer.resize(Some(size));
                     }
                 }
-                WindowEvent::ScaleFactorChanged { .. } => {
-                    renderer.resize(None);
-                }
-                WindowEvent::CloseRequested => {
-                    event_loop.exit();
-                }
+                WindowEvent::ScaleFactorChanged { .. } => renderer.resize(None),
+                WindowEvent::CloseRequested => event_loop.exit(),
                 WindowEvent::DroppedFile(ref path) => {
-                    renderer
-                        .gui_window()
-                        .load_midi(path.clone(), &mut self.settings, &self.state);
+                    renderer.gui_window().load_midi(path.clone(), &mut self.settings, &self.state);
                 }
                 _ => (),
             }
 
             if self.state.fullscreen {
-                let mode = event_loop
-                    .available_monitors()
-                    .next()
-                    .unwrap()
-                    .video_modes()
-                    .next()
-                    .unwrap();
-
-                renderer.set_fullscreen(mode);
+                if let Some(monitor) = event_loop.primary_monitor().or_else(|| event_loop.available_monitors().next()) {
+                    if let Some(mode) = monitor.video_modes().next() {
+                        renderer.set_fullscreen(mode);
+                    }
+                }
                 self.state.fullscreen = false;
-            }
-
-            if self.settings.gui.vsync != self.current_vsync {
-                renderer.set_vsync(self.settings.gui.vsync);
-                self.current_vsync = self.settings.gui.vsync;
             }
         }
     }
