@@ -135,18 +135,6 @@ impl Renderer {
             window.clone(),
             physical_device,
             device.clone(),
-            #[cfg(target_os = "linux")]
-            if matches!(
-                event_loop.display_handle().unwrap().as_raw(),
-                RawDisplayHandle::Wayland(..)
-            ) {
-                println!("Present Mode: {:?}", crate::WAYLAND_PRESENT_MODE);
-                crate::WAYLAND_PRESENT_MODE
-            } else {
-                println!("Present Mode: {:?}", crate::PRESENT_MODE);
-                crate::PRESENT_MODE
-            },
-            #[cfg(not(target_os = "linux"))]
             crate::PRESENT_MODE,
         );
 
@@ -207,12 +195,6 @@ impl Renderer {
     pub fn set_vsync(&mut self, enable_vsync: bool) {
         if enable_vsync {
             self.swap_chain.set_present_mode(crate::VSYNC_PRESENT_MODE);
-        } else if matches!(
-            self.window.display_handle().unwrap().as_raw(),
-            RawDisplayHandle::Wayland(..)
-        ) {
-            self.swap_chain
-                .set_present_mode(crate::WAYLAND_PRESENT_MODE);
         } else {
             self.swap_chain.set_present_mode(crate::PRESENT_MODE);
         }
