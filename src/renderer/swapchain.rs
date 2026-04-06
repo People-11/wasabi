@@ -12,6 +12,7 @@ use vulkano::{
     sync::{self, GpuFuture},
     Validated, VulkanError,
 };
+use vulkano::device::DeviceOwned;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct ImagesState {
@@ -55,6 +56,13 @@ impl ManagedSwapchain {
             .map(|v| v.0)
             .unwrap_or(Format::B8G8R8A8_UNORM);
         let image_extent = window.inner_size().into();
+
+        let present_mode = physical
+            .surface_present_modes(&surface, Default::default())
+            .unwrap()
+            .into_iter()
+            .find(|&p| p == present_mode)
+            .unwrap_or(PresentMode::Fifo);
 
         let (swapchain, images) = Swapchain::new(
             device.clone(),
@@ -109,6 +117,16 @@ impl ManagedSwapchain {
     }
 
     pub fn set_present_mode(&mut self, present_mode: PresentMode) {
+        let present_mode = self
+            .swap_chain
+            .device()
+            .physical_device()
+            .surface_present_modes(self.swap_chain.surface(), Default::default())
+            .unwrap()
+            .into_iter()
+            .find(|&p| p == present_mode)
+            .unwrap_or(PresentMode::Fifo);
+
         let prev = self.present_mode;
         self.present_mode = present_mode;
 
