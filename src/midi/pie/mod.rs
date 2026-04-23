@@ -46,6 +46,7 @@ pub struct PieMIDIFile {
     note_count: u64,
     ticks_per_second: u32,
     signature: MIDIFileUniqueSignature,
+    pie_signature: PieSignature,
 }
 
 impl PieMIDIFile {
@@ -54,6 +55,10 @@ impl PieMIDIFile {
         player: Arc<WasabiAudioPlayer>,
         settings: &MidiSettings,
     ) -> Result<Self, WasabiError> {
+        fn channel_track(channel: u8, track: u32) -> i32 {
+            channel as i32 + track as i32 * 16
+        }
+
         let ticks_per_second = 10000;
 
         let (file, signature) = open_file_and_signature(path)?;
@@ -78,53 +83,46 @@ impl PieMIDIFile {
             let mut trees = ThreadedTreeSerializers::new();
 
             let mut time = 0.0;
-
-            let mut note_count = 0;
+            let mut note_count = 0u64;
 
             for batch in key_rcv.into_iter() {
                 time += batch.delta;
 
                 let int_time = (time * ticks_per_second as f64) as i32;
 
-                let channel_track =
-                    |channel: u8, track: u32| -> i32 { (channel as i32) + (track as i32) * 16 };
-
                 for event in batch.iter_events() {
                     let track = event.track;
-                    match event.as_event() {
+                    let note_event = match event.as_event() {
                         Event::NoteOn(e) => {
                             let channel_track = channel_track(e.channel, track);
-
-                            trees.push_event(
+                            note_count += 1;
+                            Some((
                                 e.key as usize,
                                 NoteEvent::On {
                                     time: int_time,
                                     channel_track,
                                     color: colors[channel_track as usize].as_u32() as i32,
                                 },
-                            );
-                            note_count += 1;
+                            ))
                         }
-                        Event::NoteOff(e) => {
-                            let channel_track = channel_track(e.channel, track);
+                        Event::NoteOff(e) => Some((
+                            e.key as usize,
+                            NoteEvent::Off {
+                                time: int_time,
+                                channel_track: channel_track(e.channel, track),
+                            },
+                        )),
+                        _ => None,
+                    };
 
-                            trees.push_event(
-                                e.key as usize,
-                                NoteEvent::Off {
-                                    time: int_time,
-                                    channel_track,
-                                    color: colors[channel_track as usize].as_u32() as i32,
-                                },
-                            );
-                        }
-                        _ => {}
+                    if let Some((key, note_event)) = note_event {
+                        trees.push_event(key, note_event);
                     }
                 }
             }
             let final_time = (time * ticks_per_second as f64) as i32;
-            let serialized = trees.seal(final_time);
 
-            let blocks = FlatPieBlocks::build_blocks(serialized, 0, final_time as u32);
+            let blocks = trees.seal_flat(final_time);
 
             (blocks, note_count)
         });
@@ -154,6 +152,12 @@ impl PieMIDIFile {
 
         InRamAudioPlayer::new(audio.clone(), timer.get_listener(), player).spawn_playback();
 
+        let pie_signature = PieSignature {
+            file_signature: signature.clone(),
+            note_count,
+            buffer_sizes: (0..blocks.len()).map(|i| blocks.tree_len(i)).collect(),
+        };
+
         Ok(PieMIDIFile {
             blocks,
             audio,
@@ -162,6 +166,7 @@ impl PieMIDIFile {
             note_count,
             ticks_per_second,
             signature,
+            pie_signature,
         })
     }
 
@@ -182,14 +187,8 @@ impl PieMIDIFile {
         self.timer.get_time()
     }
 
-    pub fn pie_signature(&self) -> PieSignature {
-        PieSignature {
-            file_signature: self.signature.clone(),
-            note_count: self.note_count,
-            buffer_sizes: (0..self.blocks.len())
-                .map(|i| self.blocks.tree_len(i))
-                .collect(),
-        }
+    pub fn pie_signature(&self) -> &PieSignature {
+        &self.pie_signature
     }
 }
 

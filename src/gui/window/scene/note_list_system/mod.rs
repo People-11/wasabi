@@ -1,8 +1,7 @@
 pub mod notes_render_pass;
 
-use std::{cell::UnsafeCell, sync::Arc};
+use std::sync::Arc;
 
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use vulkano::image::view::ImageView;
 
 use crate::{
@@ -23,30 +22,16 @@ struct ColumnReturnData {
 
 pub struct NoteRenderer {
     render_pass: NoteRenderPass,
-    thrad_pool: rayon::ThreadPool,
 }
-
-struct UnsafeSyncCell<T>(UnsafeCell<T>);
-
-impl<T> UnsafeSyncCell<T> {
-    pub fn new(value: T) -> Self {
-        UnsafeSyncCell(UnsafeCell::new(value))
-    }
-
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.0.get()
-    }
-}
-
-unsafe impl<T> Sync for UnsafeSyncCell<T> {}
-unsafe impl<T> Send for UnsafeSyncCell<T> {}
 
 impl NoteRenderer {
-    pub fn new(device: Arc<vulkano::device::Device>, queue: Arc<vulkano::device::Queue>, format: vulkano::format::Format) -> NoteRenderer {
+    pub fn new(
+        device: Arc<vulkano::device::Device>,
+        queue: Arc<vulkano::device::Queue>,
+        format: vulkano::format::Format,
+    ) -> NoteRenderer {
         NoteRenderer {
             render_pass: NoteRenderPass::new(device, queue, format),
-            thrad_pool: rayon::ThreadPoolBuilder::new().build().unwrap(),
         }
     }
 
@@ -118,8 +103,6 @@ impl NoteRenderer {
         let mut notes_pushed = 0;
         let mut polyphony = 0;
 
-        let mut cycle = 0;
-
         let view_range = note_views.range().length() as f32;
 
         self.render_pass.draw(
@@ -131,78 +114,53 @@ impl NoteRenderer {
             |buffer| {
                 let buffer_length = buffer.len() as usize;
 
-                let buffer_writer = UnsafeSyncCell::new(buffer.write().unwrap());
+                let mut mapped_buffer = buffer.write().unwrap();
+                let mut column_data = ColumnReturnData::default();
 
-                // A system to write multiple note columns into 1 large allocated array in parallel
-                let column_data = self.thrad_pool.install(|| {
-                    // For each note column, write it into the buffer
-                    let out_data = columns_view_info.par_iter_mut().rev().map(|column| {
-                        if column.remaining == 0 {
-                            return Default::default();
-                        }
+                for column in columns_view_info.iter_mut().rev() {
+                    if column.remaining == 0 {
+                        continue;
+                    }
 
-                        let offset = (column.offset as i64 - notes_pushed as i64).max(0) as usize;
+                    let offset = (column.offset as i64 - notes_pushed as i64).max(0) as usize;
 
-                        if offset >= buffer_length {
-                            return Default::default();
-                        }
+                    if offset >= buffer_length {
+                        continue;
+                    }
 
-                        let remaining_buffer_space = buffer_length - offset;
-                        let iter_length = column.remaining;
+                    let remaining_buffer_space = buffer_length - offset;
+                    let allowed_to_write = column.remaining.min(remaining_buffer_space);
+                    let mut poly = 0;
 
-                        let allowed_to_write = if iter_length > remaining_buffer_space {
-                            remaining_buffer_space
-                        } else {
-                            iter_length
+                    // Hoist per-column constants to avoid redundant casts per note
+                    let key_u32 = column.key as u32;
+                    let border_width_u32 = column.border_width as u32;
+
+                    for i in 0..allowed_to_write {
+                        let note = column.iter.next().unwrap();
+                        mapped_buffer[i + offset] = NoteVertex {
+                            start_length: [note.start, note.len],
+                            key_color: key_u32 | (note.color.as_u32() << 8),
+                            border_width: border_width_u32,
                         };
 
-                        let mut poly = 0;
-
-                        unsafe {
-                            let buffer = buffer_writer.get_mut();
-
-                            for i in 0..allowed_to_write {
-                                let next_note = column.iter.next();
-                                if let Some(note) = next_note {
-                                    buffer[i + offset] = NoteVertex::new(
-                                        note.start,
-                                        note.len,
-                                        column.key,
-                                        note.color.as_u32(),
-                                        column.border_width as u32,
-                                    );
-
-                                    if note.start <= 0.0 && note.start + note.len > 0.0 {
-                                        poly += 1;
-                                        if column.color.is_none() {
-                                            column.color = Some(note.color);
-                                        }
-                                    }
-                                } else {
-                                    panic!("Invalid iterator length");
-                                }
+                        if note.start <= 0.0 && note.start + note.len > 0.0 {
+                            poly += 1;
+                            if column.color.is_none() {
+                                column.color = Some(note.color);
                             }
                         }
-
-                        column.remaining -= allowed_to_write;
-
-                        ColumnReturnData {
-                            polyphony: poly,
-                            written_notes: allowed_to_write,
-                        }
-                    });
-
-                    let temp = out_data.collect::<Vec<_>>();
-                    ColumnReturnData {
-                        polyphony: temp.iter().map(|d| d.polyphony).sum::<usize>(),
-                        written_notes: temp.iter().map(|d| d.written_notes).sum::<usize>(),
                     }
-                });
+
+                    column.remaining -= allowed_to_write;
+                    column_data.polyphony += poly;
+                    column_data.written_notes += allowed_to_write;
+                }
+
+                drop(mapped_buffer);
 
                 polyphony += column_data.polyphony;
                 notes_pushed += column_data.written_notes;
-
-                cycle += 1;
 
                 if notes_pushed >= total_notes {
                     NotePassStatus::Finished {

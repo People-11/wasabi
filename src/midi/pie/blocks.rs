@@ -3,14 +3,14 @@ use crate::midi::MIDIColor;
 /// Flattened storage for all cake blocks' tree data
 /// This stores all 256 keys' IntVector4 data in a single contiguous buffer
 pub struct FlatPieBlocks {
+    start_time: u32,
+    end_time: u32,
     block_info: Vec<PieBlockInfo>,
     pub tree_buffer: Vec<i32>,
 }
 
 #[derive(Clone, Copy)]
 pub struct PieBlockInfo {
-    pub start_time: u32,
-    pub end_time: u32,
     pub tree_offset: usize,
     pub tree_len: usize,
 }
@@ -25,29 +25,26 @@ pub struct PieNoteData {
 }
 
 impl FlatPieBlocks {
-    /// Build flattened blocks from individual tree vectors
-    pub fn build_blocks(trees: Vec<Vec<i32>>, start_time: u32, end_time: u32) -> Self {
-        let mut block_info = Vec::with_capacity(trees.len());
-        let mut tree_buffer = Vec::new();
-
-        for tree in trees {
-            let tree_offset = tree_buffer.len();
-            let tree_len = tree.len();
-
-            tree_buffer.extend_from_slice(&tree);
-
-            block_info.push(PieBlockInfo {
-                start_time,
-                end_time,
-                tree_offset,
-                tree_len,
-            });
-        }
-
+    pub(super) fn from_parts(
+        start_time: u32,
+        end_time: u32,
+        block_info: Vec<PieBlockInfo>,
+        tree_buffer: Vec<i32>,
+    ) -> Self {
         FlatPieBlocks {
+            start_time,
+            end_time,
             block_info,
             tree_buffer,
         }
+    }
+
+    pub fn start_time(&self) -> u32 {
+        self.start_time
+    }
+
+    pub fn end_time(&self) -> u32 {
+        self.end_time
     }
 
     /// Get the tree slice for a specific key
@@ -73,65 +70,76 @@ impl FlatPieBlocks {
         self.block_info[key].tree_len as usize
     }
 
-    /// Helper to traverse the tree and find the leaf node for a given time
-    /// Returns (leaf_index, notes_passed_at_parent)
-    fn traverse(&self, key: usize, time: i32) -> Option<(usize, u32)> {
-        let tree = self.get_tree(key);
-        if tree.is_empty() {
-            return None;
-        }
-
-        let mut next_index = tree[0] as usize;
+    #[inline(always)]
+    fn traverse_leaf(ptr: *const i32, time: i32) -> (u32, usize) {
+        let mut next_index = unsafe { *ptr } as usize;
 
         loop {
-            let cutoff = tree[next_index];
-
-            let offset = if time < cutoff {
-                tree[next_index + 1]
-            } else {
-                tree[next_index + 2]
-            };
+            let cutoff = unsafe { *ptr.add(next_index) };
+            let child_idx = if time < cutoff { next_index + 1 } else { next_index + 2 };
+            let offset = unsafe { *ptr.add(child_idx) };
 
             if offset > 0 {
-                // Found leaf
-                let notes_passed = tree[next_index + 3] as u32;
-                let leaf_index = next_index - offset as usize;
-                return Some((leaf_index, notes_passed));
+                return (unsafe { *ptr.add(next_index + 3) } as u32, next_index - offset as usize);
             }
 
-            let offset = -offset;
-            next_index -= offset as usize;
+            next_index -= (-offset) as usize;
         }
     }
 
-    /// Get note at a specific time for a specific key
-    pub fn get_note_at(&self, key: usize, time: i32) -> Option<PieNoteData> {
-        let (next_index, _) = self.traverse(key, time)?;
-        let tree = self.get_tree(key);
-
-        let note_start = tree[next_index];
-        let note_end = tree[next_index + 1];
-        let note_color = tree[next_index + 2];
-
-        if time < note_start || time >= note_end {
+    #[inline(always)]
+    fn note_at(ptr: *const i32, leaf_index: usize, time: i32) -> Option<PieNoteData> {
+        let note_start = unsafe { *ptr.add(leaf_index) };
+        if time < note_start {
             return None;
         }
 
-        if note_color == -1 {
-            None
-        } else {
-            Some(PieNoteData {
-                start_time: note_start as u32,
-                end_time: note_end as u32,
-                color: MIDIColor::from_u32(note_color as u32),
-            })
+        let note_end = unsafe { *ptr.add(leaf_index + 1) };
+        if time >= note_end {
+            return None;
         }
+
+        let note_color = unsafe { *ptr.add(leaf_index + 2) };
+        (note_color != -1).then(|| PieNoteData {
+            start_time: note_start as u32,
+            end_time: note_end as u32,
+            color: MIDIColor::from_u32(note_color as u32),
+        })
     }
 
     /// Get the number of notes that have passed at a specific time for a specific key
     pub fn get_notes_passed_at(&self, key: usize, time: i32) -> u32 {
-        self.traverse(key, time)
-            .map(|(_, count)| count)
-            .unwrap_or(0)
+        let tree = self.get_tree(key);
+        if tree.is_empty() {
+            return 0;
+        }
+
+        Self::traverse_leaf(tree.as_ptr(), time).0
+    }
+
+    pub fn get_window_stats_at(
+        &self,
+        key: usize,
+        start_time: i32,
+        end_time: i32,
+    ) -> (Option<PieNoteData>, u32, u32) {
+        let tree = self.get_tree(key);
+        if tree.is_empty() {
+            return (None, 0, 0);
+        }
+
+        let ptr = tree.as_ptr();
+        let (start_notes_passed, start_leaf) = Self::traverse_leaf(ptr, start_time);
+        let end_notes_passed = if start_time == end_time {
+            start_notes_passed
+        } else {
+            Self::traverse_leaf(ptr, end_time).0
+        };
+
+        (
+            Self::note_at(ptr, start_leaf, start_time),
+            start_notes_passed,
+            end_notes_passed,
+        )
     }
 }

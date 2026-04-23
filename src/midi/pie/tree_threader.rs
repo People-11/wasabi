@@ -2,8 +2,12 @@ use std::sync::{Arc, Mutex};
 
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
-use super::tree_serializer::TreeSerializer;
+use super::{
+    blocks::{FlatPieBlocks, PieBlockInfo},
+    tree_serializer::TreeSerializer,
+};
 
+#[derive(Clone)]
 pub enum NoteEvent {
     On {
         time: i32,
@@ -13,7 +17,6 @@ pub enum NoteEvent {
     Off {
         time: i32,
         channel_track: i32,
-        color: i32,
     },
 }
 
@@ -29,7 +32,7 @@ pub struct ThreadedTreeSerializers {
 
 impl ThreadedTreeSerializers {
     fn make_vecs() -> Vec<Vec<NoteEvent>> {
-        (0..256).map(|_| Vec::new()).collect()
+        vec![Vec::new(); 256]
     }
 
     pub fn new() -> ThreadedTreeSerializers {
@@ -59,7 +62,6 @@ impl ThreadedTreeSerializers {
                                 NoteEvent::Off {
                                     time,
                                     channel_track,
-                                    color: _color,
                                 } => {
                                     tree.end_note(time, channel_track);
                                 }
@@ -100,7 +102,7 @@ impl ThreadedTreeSerializers {
         }
     }
 
-    pub fn seal(self, time: i32) -> Vec<Vec<i32>> {
+    pub fn seal_flat(self, time: i32) -> FlatPieBlocks {
         self.snd.send(self.current_vec).unwrap();
         drop(self.snd);
 
@@ -111,12 +113,17 @@ impl ThreadedTreeSerializers {
 
         let trees = Arc::try_unwrap(self.trees).unwrap().into_inner().unwrap();
 
-        let mut serialized = Vec::new();
+        let mut block_info = Vec::with_capacity(trees.len());
+        let mut tree_buffer = Vec::new();
+
         for tree in trees.into_iter() {
-            let sealed = tree.complete_and_seal(time);
-            serialized.push(sealed);
+            let (tree_offset, tree_len) = tree.complete_and_append_to(time, &mut tree_buffer);
+            block_info.push(PieBlockInfo {
+                tree_offset,
+                tree_len,
+            });
         }
 
-        serialized
+        FlatPieBlocks::from_parts(0, time as u32, block_info, tree_buffer)
     }
 }

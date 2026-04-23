@@ -66,8 +66,19 @@ struct PieBatch {
     end_key: usize,
     base_offset: usize,
     descriptor_set: Arc<DescriptorSet>,
-    vbo_ring: [Subbuffer<[PieNoteColumn]>; 2],
-    vbo_idx: usize,
+    vbo: Subbuffer<[PieNoteColumn]>,
+    vertices: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PieVboCacheSignature {
+    notes_hash: u64,
+    border_width: i32,
+}
+
+struct CachedFramebuffer {
+    color_attachment: Arc<ImageView>,
+    framebuffer: Arc<Framebuffer>,
 }
 
 pub struct PieRenderer {
@@ -80,6 +91,8 @@ pub struct PieRenderer {
     cb_allocator: Arc<StandardCommandBufferAllocator>,
     sd_allocator: Arc<StandardDescriptorSetAllocator>,
     current_file_signature: Option<PieSignature>,
+    vbo_cache_signature: Option<PieVboCacheSignature>,
+    framebuffer_cache: Vec<CachedFramebuffer>,
 }
 
 impl PieRenderer {
@@ -92,32 +105,79 @@ impl PieRenderer {
                 depth: { format: Format::D16_UNORM, samples: 1, load_op: Clear, store_op: Store }
             },
             passes: [{ color: [final_color], depth_stencil: {depth}, input: [] }]
-        ).unwrap();
+        )
+        .unwrap();
 
-        let depth_buffer = ImageView::new_default(Image::new(allocator.clone(), ImageCreateInfo { extent: [1, 1, 1], format: Format::D16_UNORM, usage: ImageUsage::SAMPLED | ImageUsage::DEPTH_STENCIL_ATTACHMENT, ..Default::default() }, Default::default()).unwrap()).unwrap();
+        let depth_buffer = ImageView::new_default(
+            Image::new(
+                allocator.clone(),
+                ImageCreateInfo {
+                    extent: [1, 1, 1],
+                    format: Format::D16_UNORM,
+                    usage: ImageUsage::SAMPLED | ImageUsage::DEPTH_STENCIL_ATTACHMENT,
+                    ..Default::default()
+                },
+                Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
 
-        let vs = vs::load(device.clone()).unwrap().entry_point("main").unwrap();
-        let fs = fs::load(device.clone()).unwrap().entry_point("main").unwrap();
-        let gs = gs::load(device.clone()).unwrap().entry_point("main").unwrap();
+        let vs = vs::load(device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let fs = fs::load(device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let gs = gs::load(device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
 
         let vertex_input_state = PieNoteColumn::per_vertex().definition(&vs).unwrap();
-        let stages = [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs), PipelineShaderStageCreateInfo::new(gs)];
-        let layout = PipelineLayout::new(device.clone(), PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages).into_pipeline_layout_create_info(device.clone()).unwrap()).unwrap();
+        let stages = [
+            PipelineShaderStageCreateInfo::new(vs),
+            PipelineShaderStageCreateInfo::new(fs),
+            PipelineShaderStageCreateInfo::new(gs),
+        ];
+        let layout = PipelineLayout::new(
+            device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(device.clone())
+                .unwrap(),
+        )
+        .unwrap();
         let subpass = Subpass::from(render_pass_clear.clone(), 0).unwrap();
 
-        let pipeline_clear = GraphicsPipeline::new(device.clone(), None, GraphicsPipelineCreateInfo {
-            stages: stages.into_iter().collect(),
-            vertex_input_state: Some(vertex_input_state),
-            input_assembly_state: Some(InputAssemblyState { topology: PrimitiveTopology::PointList, ..Default::default() }),
-            viewport_state: Some(Default::default()),
-            dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-            rasterization_state: Some(RasterizationState::default()),
-            multisample_state: Some(MultisampleState::default()),
-            color_blend_state: Some(ColorBlendState::with_attachment_states(subpass.num_color_attachments(), ColorBlendAttachmentState::default())),
-            depth_stencil_state: Some(DepthStencilState { depth: Some(DepthState::simple()), ..Default::default() }),
-            subpass: Some(subpass.into()),
-            ..GraphicsPipelineCreateInfo::layout(layout)
-        }).unwrap();
+        let pipeline_clear = GraphicsPipeline::new(
+            device.clone(),
+            None,
+            GraphicsPipelineCreateInfo {
+                stages: stages.into_iter().collect(),
+                vertex_input_state: Some(vertex_input_state),
+                input_assembly_state: Some(InputAssemblyState {
+                    topology: PrimitiveTopology::PointList,
+                    ..Default::default()
+                }),
+                viewport_state: Some(Default::default()),
+                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                rasterization_state: Some(RasterizationState::default()),
+                multisample_state: Some(MultisampleState::default()),
+                color_blend_state: Some(ColorBlendState::with_attachment_states(
+                    subpass.num_color_attachments(),
+                    ColorBlendAttachmentState::default(),
+                )),
+                depth_stencil_state: Some(DepthStencilState {
+                    depth: Some(DepthState::simple()),
+                    ..Default::default()
+                }),
+                subpass: Some(subpass.into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            },
+        )
+        .unwrap();
 
         PieRenderer {
             gfx_queue: queue,
@@ -126,10 +186,113 @@ impl PieRenderer {
             render_pass_clear,
             depth_buffer,
             allocator,
-            cb_allocator: StandardCommandBufferAllocator::new(device.clone(), StandardCommandBufferAllocatorCreateInfo::default()).into(),
-            sd_allocator: StandardDescriptorSetAllocator::new(device.clone(), StandardDescriptorSetAllocatorCreateInfo::default()).into(),
+            cb_allocator: StandardCommandBufferAllocator::new(
+                device.clone(),
+                StandardCommandBufferAllocatorCreateInfo::default(),
+            )
+            .into(),
+            sd_allocator: StandardDescriptorSetAllocator::new(
+                device.clone(),
+                StandardDescriptorSetAllocatorCreateInfo::default(),
+            )
+            .into(),
             current_file_signature: None,
+            vbo_cache_signature: None,
+            framebuffer_cache: vec![],
         }
+    }
+
+    fn vbo_cache_signature(key_view: &KeyboardView, border_width: i32) -> PieVboCacheSignature {
+        let mut hash = 0xcbf29ce484222325u64;
+
+        fn hash_u64(hash: &mut u64, value: u64) {
+            *hash ^= value;
+            *hash = hash.wrapping_mul(0x100000001b3);
+        }
+
+        hash_u64(&mut hash, key_view.visible_range.start as u64);
+        hash_u64(&mut hash, key_view.visible_range.end as u64);
+
+        for note in key_view.iter_all_notes() {
+            hash_u64(&mut hash, note.left.to_bits() as u64);
+            hash_u64(&mut hash, note.right.to_bits() as u64);
+            hash_u64(&mut hash, note.black as u64);
+        }
+
+        PieVboCacheSignature {
+            notes_hash: hash,
+            border_width,
+        }
+    }
+
+    fn update_vbo_cache(
+        &mut self,
+        key_view: &KeyboardView,
+        midi_file: &PieMIDIFile,
+        border_width: i32,
+    ) {
+        let signature = Self::vbo_cache_signature(key_view, border_width);
+        if self.vbo_cache_signature == Some(signature) {
+            return;
+        }
+
+        let flat_blocks = midi_file.flat_blocks();
+
+        for batch in &mut self.batches {
+            let mut mapped_vbo = batch.vbo.write().unwrap();
+            let mut written = 0;
+
+            let mut add_keys = |target_black: bool, written: &mut usize| {
+                for i in batch.start_key..batch.end_key {
+                    let key = key_view.note(i);
+                    if key.black == target_black {
+                        let info = flat_blocks.get_block_info(i);
+                        mapped_vbo[*written] = PieNoteColumn {
+                            tree_offset: (info.tree_offset - batch.base_offset) as i32,
+                            border_width,
+                            start: flat_blocks.start_time() as i32,
+                            end: flat_blocks.end_time() as i32,
+                            left: key.left,
+                            right: key.right,
+                        };
+                        *written += 1;
+                    }
+                }
+            };
+
+            add_keys(true, &mut written);
+            add_keys(false, &mut written);
+
+            batch.vertices = written;
+        }
+
+        self.vbo_cache_signature = Some(signature);
+    }
+
+    fn get_or_create_framebuffer(&mut self, final_image: Arc<ImageView>) -> Arc<Framebuffer> {
+        if let Some(entry) = self
+            .framebuffer_cache
+            .iter()
+            .find(|entry| Arc::ptr_eq(&entry.color_attachment, &final_image))
+        {
+            return entry.framebuffer.clone();
+        }
+
+        let framebuffer = Framebuffer::new(
+            self.render_pass_clear.clone(),
+            FramebufferCreateInfo {
+                attachments: vec![final_image.clone(), self.depth_buffer.clone()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        self.framebuffer_cache.push(CachedFramebuffer {
+            color_attachment: final_image,
+            framebuffer: framebuffer.clone(),
+        });
+
+        framebuffer
     }
 
     pub fn draw(
@@ -157,11 +320,13 @@ impl PieRenderer {
                 .unwrap(),
             )
             .unwrap();
+            self.framebuffer_cache.clear();
         }
 
         let curr_signature = midi_file.pie_signature();
-        if self.current_file_signature.as_ref() != Some(&curr_signature) {
-            self.current_file_signature = Some(curr_signature);
+        if self.current_file_signature.as_ref() != Some(curr_signature) {
+            self.current_file_signature = Some(curr_signature.clone());
+            self.vbo_cache_signature = None;
             self.batches.clear();
 
             let flat_blocks = midi_file.flat_blocks();
@@ -190,7 +355,12 @@ impl PieRenderer {
                 let size_bytes = info.tree_len * 4;
 
                 if current_batch_size + size_bytes > target_batch_size && current_batch_size > 0 {
-                    chunks.push((current_batch_start, i, current_start_offset, info.tree_offset));
+                    chunks.push((
+                        current_batch_start,
+                        i,
+                        current_start_offset,
+                        info.tree_offset,
+                    ));
                     current_batch_start = i;
                     current_batch_size = 0;
                     current_start_offset = info.tree_offset;
@@ -199,7 +369,12 @@ impl PieRenderer {
             }
 
             if current_batch_start < flat_blocks.len() {
-                chunks.push((current_batch_start, flat_blocks.len(), current_start_offset, flat_blocks.tree_buffer.len()));
+                chunks.push((
+                    current_batch_start,
+                    flat_blocks.len(),
+                    current_start_offset,
+                    flat_blocks.tree_buffer.len(),
+                ));
             }
 
             let pipeline_layout = self.pipeline_clear.layout();
@@ -207,7 +382,7 @@ impl PieRenderer {
 
             for (start_key, end_key, start_offset, end_offset) in chunks {
                 let slice = &flat_blocks.tree_buffer[start_offset..end_offset];
-                
+
                 let staging_buffer = Buffer::new_slice(
                     self.allocator.clone(),
                     BufferCreateInfo {
@@ -253,8 +428,19 @@ impl PieRenderer {
                 .unwrap();
 
                 let vbo_size = (end_key - start_key) as u64;
-                let vbo0 = Buffer::new_slice(self.allocator.clone(), BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() }, AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE, ..Default::default() }, vbo_size).unwrap();
-                let vbo1 = Buffer::new_slice(self.allocator.clone(), BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() }, AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE, ..Default::default() }, vbo_size).unwrap();
+                let vbo = Buffer::new_slice(
+                    self.allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::VERTEX_BUFFER,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    vbo_size,
+                )
+                .unwrap();
 
                 self.batches.push(PieBatch {
                     _buffer: device_buffer,
@@ -262,8 +448,8 @@ impl PieRenderer {
                     end_key,
                     base_offset: start_offset,
                     descriptor_set,
-                    vbo_ring: [vbo0, vbo1],
-                    vbo_idx: 0,
+                    vbo,
+                    vertices: 0,
                 });
             }
 
@@ -273,7 +459,7 @@ impl PieRenderer {
                 .unwrap()
                 .then_signal_fence_and_flush()
                 .unwrap();
-            
+
             future.wait(None).unwrap();
         }
 
@@ -293,21 +479,18 @@ impl PieRenderer {
             key_view.visible_range.len() as f32,
         ) as i32;
 
+        self.update_vbo_cache(key_view, midi_file, border_width);
+
         let clears = vec![
-            Some(bg_color.map(|c| ClearValue::from(c)).unwrap_or(ClearValue::from([0.0f32, 0.0, 0.0, 0.0]))),
+            Some(
+                bg_color
+                    .map(|c| ClearValue::from(c))
+                    .unwrap_or(ClearValue::from([0.0f32, 0.0, 0.0, 0.0])),
+            ),
             Some(ClearValue::from(1.0f32)),
         ];
 
-        let render_pass = &self.render_pass_clear;
-
-        let framebuffer = Framebuffer::new(
-            render_pass.clone(),
-            FramebufferCreateInfo {
-                attachments: vec![final_image.clone(), self.depth_buffer.clone()],
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let framebuffer = self.get_or_create_framebuffer(final_image.clone());
 
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.cb_allocator.clone(),
@@ -344,9 +527,7 @@ impl PieRenderer {
             .push_constants(self.pipeline_clear.layout().clone(), 0, push_constants)
             .unwrap();
 
-        let flat_blocks = midi_file.flat_blocks();
-
-        for batch in &mut self.batches {
+        for batch in &self.batches {
             command_buffer_builder
                 .bind_descriptor_sets(
                     PipelineBindPoint::Graphics,
@@ -356,40 +537,12 @@ impl PieRenderer {
                 )
                 .unwrap();
 
-            batch.vbo_idx = (batch.vbo_idx + 1) % 2;
-            let vbo = &batch.vbo_ring[batch.vbo_idx];
-            let mut mapped_vbo = vbo.write().unwrap();
-            let mut written = 0;
-
-            let mut add_keys = |target_black: bool, written: &mut usize| {
-                for i in batch.start_key..batch.end_key {
-                    let key = key_view.note(i);
-                    if key.black == target_black {
-                        let info = flat_blocks.get_block_info(i);
-                        mapped_vbo[*written] = PieNoteColumn {
-                            tree_offset: (info.tree_offset - batch.base_offset) as i32,
-                            border_width,
-                            start: info.start_time as i32,
-                            end: info.end_time as i32,
-                            left: key.left,
-                            right: key.right,
-                        };
-                        *written += 1;
-                    }
-                }
-            };
-
-            add_keys(true, &mut written);  // Black keys
-            add_keys(false, &mut written); // White keys
-
-            drop(mapped_vbo);
-
-            if written > 0 {
+            if batch.vertices > 0 {
                 unsafe {
                     command_buffer_builder
-                        .bind_vertex_buffers(0, vbo.clone())
+                        .bind_vertex_buffers(0, batch.vbo.clone())
                         .unwrap()
-                        .draw(written as u32, 1, 0, 0)
+                        .draw(batch.vertices as u32, 1, 0, 0)
                         .unwrap();
                 }
             }
@@ -409,16 +562,16 @@ impl PieRenderer {
         // Calculate the metadata before awaiting the future
         // to keep this more efficient
         let flat_blocks = midi_file.flat_blocks();
-        let mut colors = Vec::with_capacity(flat_blocks.len());
+        let mut key_colors = Vec::with_capacity(flat_blocks.len());
         let mut rendered_notes = 0;
 
         for key in 0..flat_blocks.len() {
-            let active_note = flat_blocks.get_note_at(key, screen_start);
-            colors.push(active_note.map(|n| n.color));
-            
-            let passed = flat_blocks.get_notes_passed_at(key, screen_end)
-                - flat_blocks.get_notes_passed_at(key, screen_start);
-            
+            let (active_note, notes_passed_start, notes_passed_end) =
+                flat_blocks.get_window_stats_at(key, screen_start, screen_end);
+            key_colors.push(active_note.map(|n| n.color));
+
+            let passed = notes_passed_end - notes_passed_start;
+
             rendered_notes += if active_note.is_some() {
                 passed as u64 + 1
             } else {
@@ -435,7 +588,7 @@ impl PieRenderer {
         RenderResultData {
             notes_rendered: rendered_notes,
             polyphony: None,
-            key_colors: colors,
+            key_colors,
         }
     }
 }

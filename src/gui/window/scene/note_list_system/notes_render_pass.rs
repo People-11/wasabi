@@ -48,24 +48,13 @@ pub struct NoteVertex {
     pub border_width: u32,
 }
 
-impl NoteVertex {
-    pub fn new(start: f32, len: f32, key: u8, color: u32, border_width: u32) -> Self {
-        Self {
-            start_length: [start, len],
-            key_color: key as u32 | (color << 8),
-            border_width,
-        }
-    }
-}
-
 struct BufferSet {
-    vertex_buffers: [Subbuffer<[NoteVertex]>; 2],
+    vertex_buffers: Vec<Subbuffer<[NoteVertex]>>,
     index: usize,
+    allocator: Arc<StandardMemoryAllocator>,
 }
 
-fn get_buffer(device: &Arc<Device>) -> (Subbuffer<[NoteVertex]>, Subbuffer<[NoteVertex]>) {
-    let allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-
+fn get_buffer(allocator: Arc<StandardMemoryAllocator>) -> Subbuffer<[NoteVertex]> {
     Buffer::new_slice(
         allocator.clone(),
         BufferCreateInfo {
@@ -73,27 +62,37 @@ fn get_buffer(device: &Arc<Device>) -> (Subbuffer<[NoteVertex]>, Subbuffer<[Note
             ..Default::default()
         },
         AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::HOST_RANDOM_ACCESS,
+            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
             ..Default::default()
         },
-        NOTE_BUFFER_SIZE * 2,
+        NOTE_BUFFER_SIZE,
     )
     .expect("failed to create buffer")
-    .split_at(NOTE_BUFFER_SIZE)
 }
 
 impl BufferSet {
-    fn new(device: &Arc<Device>) -> Self {
-        let buffer = get_buffer(device);
+    fn new(allocator: Arc<StandardMemoryAllocator>) -> Self {
+        let buffer = get_buffer(allocator.clone());
         Self {
-            vertex_buffers: [buffer.0, buffer.1],
+            vertex_buffers: vec![buffer],
             index: 0,
+            allocator,
         }
     }
 
+    fn reset(&mut self) {
+        self.index = 0;
+    }
+
     fn next(&mut self) -> &Subbuffer<[NoteVertex]> {
-        self.index = (self.index + 1) % self.vertex_buffers.len();
-        &self.vertex_buffers[self.index]
+        if self.index == self.vertex_buffers.len() {
+            self.vertex_buffers.push(get_buffer(self.allocator.clone()));
+        }
+
+        let index = self.index;
+        self.index += 1;
+
+        &self.vertex_buffers[index]
     }
 }
 
@@ -134,30 +133,84 @@ impl NoteRenderPass {
                 depth: { format: Format::D16_UNORM, samples: 1, load_op: Clear, store_op: Store }
             },
             passes: [{ color: [final_color], depth_stencil: {depth}, input: [] }]
-        ).unwrap();
+        )
+        .unwrap();
 
-        let depth_buffer = ImageView::new_default(Image::new(allocator.clone(), ImageCreateInfo { extent: [1, 1, 1], format: Format::D16_UNORM, usage: ImageUsage::SAMPLED | ImageUsage::DEPTH_STENCIL_ATTACHMENT, ..Default::default() }, Default::default()).unwrap()).unwrap();
-        let key_locations = Buffer::from_iter(allocator.clone(), BufferCreateInfo { usage: BufferUsage::UNIFORM_BUFFER, ..Default::default() }, AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE, ..Default::default() }, [[Default::default(); 256]]).unwrap();
+        let depth_buffer = ImageView::new_default(
+            Image::new(
+                allocator.clone(),
+                ImageCreateInfo {
+                    extent: [1, 1, 1],
+                    format: Format::D16_UNORM,
+                    usage: ImageUsage::SAMPLED | ImageUsage::DEPTH_STENCIL_ATTACHMENT,
+                    ..Default::default()
+                },
+                Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let key_locations = Buffer::from_iter(
+            allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::UNIFORM_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            [[Default::default(); 256]],
+        )
+        .unwrap();
 
-        let vs = vs::load(gfx_queue.device().clone()).unwrap().entry_point("main").unwrap();
-        let fs = fs::load(gfx_queue.device().clone()).unwrap().entry_point("main").unwrap();
-        let gs = gs::load(gfx_queue.device().clone()).unwrap().entry_point("main").unwrap();
+        let vs = vs::load(gfx_queue.device().clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let fs = fs::load(gfx_queue.device().clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let gs = gs::load(gfx_queue.device().clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
 
         let vertex_input_state = NoteVertex::per_vertex().definition(&vs).unwrap();
-        let stages = [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs), PipelineShaderStageCreateInfo::new(gs)];
-        let layout = PipelineLayout::new(device.clone(), PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages).into_pipeline_layout_create_info(device.clone()).unwrap()).unwrap();
+        let stages = [
+            PipelineShaderStageCreateInfo::new(vs),
+            PipelineShaderStageCreateInfo::new(fs),
+            PipelineShaderStageCreateInfo::new(gs),
+        ];
+        let layout = PipelineLayout::new(
+            device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(device.clone())
+                .unwrap(),
+        )
+        .unwrap();
         let subpass = Subpass::from(render_pass_clear.clone(), 0).unwrap();
 
         let create_info = GraphicsPipelineCreateInfo {
             stages: stages.into_iter().collect(),
             vertex_input_state: Some(vertex_input_state),
-            input_assembly_state: Some(InputAssemblyState { topology: PrimitiveTopology::PointList, ..Default::default() }),
+            input_assembly_state: Some(InputAssemblyState {
+                topology: PrimitiveTopology::PointList,
+                ..Default::default()
+            }),
             viewport_state: Some(Default::default()),
             dynamic_state: [DynamicState::Viewport].into_iter().collect(),
             rasterization_state: Some(RasterizationState::default()),
             multisample_state: Some(MultisampleState::default()),
-            color_blend_state: Some(ColorBlendState::with_attachment_states(subpass.num_color_attachments(), ColorBlendAttachmentState::default())),
-            depth_stencil_state: Some(DepthStencilState { depth: Some(DepthState::simple()), ..Default::default() }),
+            color_blend_state: Some(ColorBlendState::with_attachment_states(
+                subpass.num_color_attachments(),
+                ColorBlendAttachmentState::default(),
+            )),
+            depth_stencil_state: Some(DepthStencilState {
+                depth: Some(DepthState::simple()),
+                ..Default::default()
+            }),
             subpass: Some(subpass.into()),
             ..GraphicsPipelineCreateInfo::layout(layout)
         };
@@ -166,14 +219,16 @@ impl NoteRenderPass {
 
         NoteRenderPass {
             gfx_queue,
-            buffer_set: BufferSet::new(&device),
+            buffer_set: BufferSet::new(allocator.clone()),
             pipeline_clear,
             render_pass_clear,
             depth_buffer,
             key_locations,
             allocator,
-            cb_allocator: StandardCommandBufferAllocator::new(device.clone(), Default::default()).into(),
-            sd_allocator: StandardDescriptorSetAllocator::new(device.clone(), Default::default()).into(),
+            cb_allocator: StandardCommandBufferAllocator::new(device.clone(), Default::default())
+                .into(),
+            sd_allocator: StandardDescriptorSetAllocator::new(device.clone(), Default::default())
+                .into(),
         }
     }
 
@@ -218,6 +273,7 @@ impl NoteRenderPass {
         // Collect all draw calls in a single render pass
         let mut draw_calls = Vec::new();
         let mut status = NotePassStatus::HasMoreNotes;
+        self.buffer_set.reset();
 
         while status == NotePassStatus::HasMoreNotes {
             let buffer = self.buffer_set.next();

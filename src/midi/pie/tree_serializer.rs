@@ -101,6 +101,36 @@ impl TreeSerializer {
         }
     }
 
+    #[inline(always)]
+    fn sync_to(&mut self, time: i32) {
+        if time > self.last_tree_time {
+            self.process_change(time);
+        }
+    }
+
+    #[inline(always)]
+    fn push_right_frame(&mut self, left_address: i32, mid: i32, end: i32, notes_to_the_left: u32) {
+        self.tree_frames.push_back(TreeFrame::WaitingRight {
+            left_address,
+            mid,
+            end,
+            notes_to_the_left,
+        });
+    }
+
+    #[inline(always)]
+    fn write_top_right_frame(&mut self, address: i32) -> i32 {
+        match self.tree_frames.pop_back() {
+            Some(TreeFrame::WaitingRight {
+                left_address,
+                mid,
+                notes_to_the_left,
+                ..
+            }) => self.write_leaf(left_address, address, mid, notes_to_the_left),
+            _ => unreachable!(),
+        }
+    }
+
     /// Writes a new "leaf" to the tree, which is a node with two children. The left and right,
     /// and a cuttoff point "mid" which is the time separator between left and right.
     fn write_leaf(
@@ -142,9 +172,7 @@ impl TreeSerializer {
     /// Processes a note start. If the time is greater than the last tree time, the tree is
     /// updated to the new time. Then, the note is pushed to the note stack.
     pub fn start_note(&mut self, time: i32, track_channel: i32, color: i32) {
-        if time > self.last_tree_time {
-            self.process_change(time);
-        }
+        self.sync_to(time);
 
         self.added_notes += 1;
 
@@ -162,9 +190,7 @@ impl TreeSerializer {
     /// updated to the new time. Then, the note is popped from the note stack, and the
     /// end for the note is also written.
     pub fn end_note(&mut self, time: i32, track_channel: i32) {
-        if time > self.last_tree_time {
-            self.process_change(time);
-        }
+        self.sync_to(time);
 
         let marker = self.note_stack.get_note_for(track_channel);
 
@@ -178,9 +204,7 @@ impl TreeSerializer {
         if marker.is_last {
             // last note
 
-            if time > self.last_tree_time {
-                self.process_change(time);
-            }
+            self.sync_to(time);
         }
 
         if let Some(index) = marker.value.written_pos {
@@ -188,9 +212,7 @@ impl TreeSerializer {
         }
     }
 
-    /// Ends all notes, finishes all stack frames, inserts the address of the last item into the start of the array,
-    /// and returns the array.
-    pub fn complete_and_seal(mut self, time: i32) -> Vec<i32> {
+    pub fn complete_and_append_to(mut self, time: i32, target: &mut Vec<i32>) -> (usize, usize) {
         self.end_all_notes(time);
         self.end_all_frames();
 
@@ -201,7 +223,9 @@ impl TreeSerializer {
         let len = self.written_values.len();
         self.written_values[0] = (len - 4) as i32;
 
-        self.written_values
+        let offset = target.len();
+        target.append(&mut self.written_values);
+        (offset, len)
     }
 
     fn process_change(&mut self, until: i32) {
@@ -214,12 +238,7 @@ impl TreeSerializer {
         match top_frame {
             None => {
                 // If there are no frames, initialize the top stack frame
-                self.tree_frames.push_back(TreeFrame::WaitingRight {
-                    left_address: address,
-                    mid: until,
-                    end: until * 2,
-                    notes_to_the_left: 0,
-                });
+                self.push_right_frame(address, until, until * 2, 0);
             }
             Some(frame) => match frame {
                 TreeFrame::WaitingLeft { .. } => {
@@ -243,12 +262,7 @@ impl TreeSerializer {
                         }
 
                         // Push a frame, with the midpoint being the end of the change range
-                        self.tree_frames.push_back(TreeFrame::WaitingRight {
-                            left_address: address,
-                            mid: until,
-                            end,
-                            notes_to_the_left: self.added_notes,
-                        });
+                        self.push_right_frame(address, until, end, self.added_notes);
                     } else {
                         let mut address = address;
                         loop {
@@ -264,42 +278,17 @@ impl TreeSerializer {
                                     } else {
                                         // Left frame is larger than change range
                                         // Replace with right frame, and exit
-                                        self.tree_frames.push_back(TreeFrame::WaitingRight {
-                                            left_address: address,
-                                            mid: until,
-                                            end,
-                                            notes_to_the_left: self.added_notes,
-                                        });
+                                        self.push_right_frame(address, until, end, self.added_notes);
                                         break;
                                     }
                                 }
-                                Some(TreeFrame::WaitingRight {
-                                    left_address,
-                                    mid,
-                                    notes_to_the_left,
-                                    ..
-                                }) => {
-                                    let left_address = *left_address;
-                                    let mid = *mid;
-
+                                Some(TreeFrame::WaitingRight { .. }) => {
                                     // Write frame to array, update address, step up
-                                    address = self.write_leaf(
-                                        left_address,
-                                        address,
-                                        mid,
-                                        *notes_to_the_left,
-                                    );
-
-                                    self.tree_frames.pop_back();
+                                    address = self.write_top_right_frame(address);
                                 }
                                 None => {
                                     // We have reached the top. Push a new frame
-                                    self.tree_frames.push_back(TreeFrame::WaitingRight {
-                                        left_address: address,
-                                        mid: until,
-                                        end: until * 2,
-                                        notes_to_the_left: self.added_notes,
-                                    });
+                                    self.push_right_frame(address, until, until * 2, self.added_notes);
                                     break;
                                 }
                             }
@@ -337,18 +326,10 @@ impl TreeSerializer {
                     // Left frames hold no data, skip
                 }
                 Some(TreeFrame::WaitingRight {
-                    left_address,
-                    mid,
-                    notes_to_the_left,
                     ..
                 }) => {
-                    let left_address = *left_address;
-                    let mid = *mid;
-
                     // Write frame to array, update address, step up
-                    address = self.write_leaf(left_address, address, mid, *notes_to_the_left);
-
-                    self.tree_frames.pop_back();
+                    address = self.write_top_right_frame(address);
                 }
                 None => {
                     // We have reached the top. End the loop.
