@@ -95,11 +95,6 @@ impl Default for RenderProgress {
 }
 
 impl RenderProgress {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn progress(&self) -> f32 {
         let total = self.total_frames.load(Ordering::Relaxed);
         if total == 0 {
@@ -187,25 +182,5 @@ impl Default for RenderState {
             is_rendering: false,
             progress: RenderProgress::default(),
         }
-    }
-}
-
-impl RenderState {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// 检查是否可以开始渲染
-    #[allow(dead_code)]
-    pub fn can_start(&self) -> bool {
-        self.midi_path.is_some() && self.ffmpeg_path.is_some()
-    }
-
-    /// 重置渲染状态
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.is_rendering = false;
-        self.progress.reset();
     }
 }

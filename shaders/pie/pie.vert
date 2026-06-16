@@ -11,14 +11,21 @@ layout(location = 0) out float v_left;
 layout(location = 1) out float v_right;
 layout(location = 2) out int v_start;
 layout(location = 3) out int v_end;
-layout(location = 4) out int v_tree_offset;
+layout(location = 4) out int v_root_index;
 layout(location = 5) out int v_border_width;
+
+layout(set = 0, binding = 0) readonly buffer BufferData
+{
+    int BinTree[];
+};
 
 void main() {
     v_left = left;
     v_right = right;
     v_start = start;
     v_end = end;
-    v_tree_offset = tree_offset;
+    // Hoist the per-column tree root lookup out of the fragment shader:
+    // resolved once per column here instead of once per pixel.
+    v_root_index = tree_offset + BinTree[tree_offset];
     v_border_width = border_width;
 }

@@ -12,7 +12,7 @@ use crate::midi::{
     shared::track_channel::TrackAndChannel,
 };
 
-use super::{ThreadManager, TrackEventBatch};
+use super::{TrackEventBatch};
 
 pub struct LiveNoteBlockWithKey {
     pub block: LiveRefNoteBlock,
@@ -39,13 +39,7 @@ impl TrackUnendedNotes {
         (key as usize) + (channel as usize) * 256
     }
 
-    fn end_all_notes(&mut self, time: f64) {
-        for queue in self.queues.iter_mut() {
-            while let Some(mut note) = queue.pop_front() {
-                note.end(time);
-            }
-        }
-    }
+
 
     fn end_note(&mut self, key: u8, channel: u8, time: f64) {
         let index = self.get_index(key, channel);
@@ -79,11 +73,7 @@ impl UnendedNotesHandler {
         self.unended_notes[track as usize].get_or_insert_with(TrackUnendedNotes::new)
     }
 
-    fn end_all_notes(&mut self, time: f64) {
-        for track in self.unended_notes.iter_mut().flatten() {
-            track.end_all_notes(time);
-        }
-    }
+
 }
 
 struct ParserState {
@@ -135,14 +125,11 @@ impl ParserState {
         track.end_note(key, track_chan.channel(), time);
     }
 
-    fn end_all_notes(&mut self, time: f64) {
-        self.unended_notes.end_all_notes(time);
-    }
+
 }
 
 pub struct NoteParserResult {
     pub reciever: Receiver<LiveNoteBlockWithKey>,
-    pub manager: ThreadManager,
 }
 
 pub fn init_note_manager(blocks: Receiver<Arc<TrackEventBatch>>) -> NoteParserResult {
@@ -152,7 +139,7 @@ pub fn init_note_manager(blocks: Receiver<Arc<TrackEventBatch>>) -> NoteParserRe
     let parse_time = parse_time_outer.clone();
 
     let mut state = ParserState::new(sender);
-    let join_handle = std::thread::spawn(move || {
+    std::thread::spawn(move || {
         let mut time: f64 = 0.0;
         for block in blocks.into_iter() {
             if block.delta > 0.0 {
@@ -181,9 +168,5 @@ pub fn init_note_manager(blocks: Receiver<Arc<TrackEventBatch>>) -> NoteParserRe
 
     NoteParserResult {
         reciever,
-        manager: ThreadManager {
-            handle: join_handle,
-            parse_time: parse_time_outer,
-        },
     }
 }

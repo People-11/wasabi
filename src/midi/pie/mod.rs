@@ -45,7 +45,6 @@ pub struct PieMIDIFile {
     length: f64,
     note_count: u64,
     ticks_per_second: u32,
-    signature: MIDIFileUniqueSignature,
     pie_signature: PieSignature,
 }
 
@@ -165,7 +164,6 @@ impl PieMIDIFile {
             length,
             note_count,
             ticks_per_second,
-            signature,
             pie_signature,
         })
     }
@@ -206,10 +204,6 @@ impl MIDIFileBase for PieMIDIFile {
         Some(self.length)
     }
 
-    fn parsed_up_to(&self) -> Option<f64> {
-        None
-    }
-
     fn timer(&self) -> &TimeKeeper {
         &self.timer
     }
@@ -234,9 +228,5 @@ impl MIDIFileBase for PieMIDIFile {
             total_notes: Some(self.note_count),
             passed_notes: Some(passed_notes),
         }
-    }
-
-    fn signature(&self) -> &MIDIFileUniqueSignature {
-        &self.signature
     }
 }

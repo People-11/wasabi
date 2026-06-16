@@ -206,10 +206,6 @@ impl MIDIFileBase for CakeMIDIFile {
         Some(self.length)
     }
 
-    fn parsed_up_to(&self) -> Option<f64> {
-        None
-    }
-
     fn timer(&self) -> &TimeKeeper {
         &self.timer
     }
@@ -236,9 +232,5 @@ impl MIDIFileBase for CakeMIDIFile {
             total_notes: Some(self.note_count),
             passed_notes: Some(passed_notes),
         }
-    }
-
-    fn signature(&self) -> &MIDIFileUniqueSignature {
-        &self.signature
     }
 }

@@ -24,7 +24,7 @@ use egui::Frame;
 pub use loading::*;
 use settings::SettingsWindow;
 use time::Duration;
-use tokio::sync::{oneshot, oneshot::Receiver};
+use std::sync::mpsc::{self, Receiver};
 
 use crate::{
     gui::{
@@ -369,7 +369,7 @@ impl GuiWasabiWindow {
             return;
         }
 
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = mpsc::channel();
         self.midi_picker = Some(rx);
         let last_location = state.last_midi_location.clone();
 
@@ -411,7 +411,7 @@ impl GuiWasabiWindow {
         let loading_status = state.loading_status.clone();
         let errors = state.errors.clone();
 
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = mpsc::channel();
         self.midi_loader = Some(rx);
 
         // Load the MIDI in a thread so the UI doesn't freeze and send it

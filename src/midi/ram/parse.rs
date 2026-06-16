@@ -104,7 +104,7 @@ impl InRamMIDIFile {
         player: Arc<WasabiAudioPlayer>,
         settings: &MidiSettings,
     ) -> Result<Self, WasabiError> {
-        let (file, signature) = open_file_and_signature(path)?;
+        let (file, _) = open_file_and_signature(path)?;
         let midi = TKMIDIFile::open_from_stream(file, None).map_err(WasabiError::MidiLoadError)?;
 
         let ppq = midi.ppq();
@@ -202,7 +202,6 @@ impl InRamMIDIFile {
             timer,
             length,
             note_count,
-            signature,
         })
     }
 }

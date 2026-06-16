@@ -28,19 +28,6 @@ impl InRamNoteColumnViewData {
     }
 }
 
-pub struct InRamNoteColumn {
-    pub data: InRamNoteColumnViewData,
-    pub blocks: Vec<InRamNoteBlock>,
-}
-
-impl InRamNoteColumn {
-    pub fn new(blocks: Vec<InRamNoteBlock>) -> Self {
-        InRamNoteColumn {
-            blocks,
-            data: InRamNoteColumnViewData::new(),
-        }
-    }
-}
 
 /// Flattened storage for a single column's note data
 /// All notes are stored in a single contiguous buffer

@@ -10,14 +10,6 @@ pub struct IntVector4 {
 }
 
 impl IntVector4 {
-    pub fn default() -> Self {
-        IntVector4 {
-            val1: 0,
-            val2: 0,
-            val3: 0,
-            val4: 0,
-        }
-    }
 
     pub fn new_note(start: i32, end: i32, color: i32) -> IntVector4 {
         IntVector4 {
@@ -75,13 +67,6 @@ impl IntVector4 {
         self.val4 as u32
     }
 
-    pub fn note_start(&self) -> u32 {
-        self.val1 as u32
-    }
-
-    pub fn note_end(&self) -> u32 {
-        self.val2 as u32
-    }
 
     pub fn note_color(&self) -> u32 {
         self.val3 as u32

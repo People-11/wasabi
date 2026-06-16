@@ -5,7 +5,7 @@ layout(location = 1) in vec2 screen_pos;
 layout(location = 2) in vec2 left_right;
 layout(location = 3) flat in int ticks_height;
 layout(location = 4) flat in int ticks_start;
-layout(location = 5) flat in int tree_offset;
+layout(location = 5) flat in int root_index;
 layout(location = 6) flat in int border_width;
 
 layout(location = 0) out vec4 fsout_Color;
@@ -25,7 +25,7 @@ layout(set = 0, binding = 0) readonly buffer BufferData
 const float pi = 3.1415926535897;
 
 ivec4 getNoteAt(int time) {
-    int nextIndex = tree_offset + BinTree[tree_offset];
+    int nextIndex = root_index;
 
     int steps = 0;
     while(steps < 100) {

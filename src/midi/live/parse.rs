@@ -1,6 +1,6 @@
 use std::{
     sync::{atomic::Ordering, Arc},
-    thread::{self, JoinHandle},
+    thread::{self},
 };
 use time::Duration;
 
@@ -33,13 +33,10 @@ pub type TrackEventBatch = Delta<f64, Track<EventBatch<Event>>>;
 
 pub struct ThreadManager {
     parse_time: Arc<AtomicF64>,
-    handle: JoinHandle<()>,
 }
 
 pub struct LiveMidiParser {
     file_manager: ThreadManager,
-    note_manager: ThreadManager,
-    audio_manager: ThreadManager,
     note_reciever: Receiver<LiveNoteBlockWithKey>,
 }
 
@@ -70,7 +67,7 @@ impl LiveMidiParser {
 
         let parse_time_outer = Arc::new(AtomicF64::default());
         let parse_time = parse_time_outer.clone();
-        let file_handle = thread::spawn(move || {
+        thread::spawn(move || {
             let mut time = 0.0;
             for block in merged {
                 if block.delta > 0.0 {
@@ -100,11 +97,8 @@ impl LiveMidiParser {
 
         Self {
             file_manager: ThreadManager {
-                handle: file_handle,
                 parse_time: parse_time_outer,
             },
-            note_manager: notes.manager,
-            audio_manager: audio.manager,
             note_reciever: notes.reciever,
         }
     }

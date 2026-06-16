@@ -16,7 +16,6 @@ enum TreeFrame {
 
 struct NoteMarker {
     start: i32,
-    track_channel: i32,
     color: i32,
     written_pos: Option<i32>,
 }
@@ -122,7 +121,6 @@ impl TreeSerializer {
             track_channel,
             NoteMarker {
                 start: time,
-                track_channel,
                 color,
                 written_pos: None,
             },

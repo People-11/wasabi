@@ -1,8 +1,5 @@
-#[allow(dead_code)]
 mod cake;
-#[allow(dead_code)]
 mod live;
-#[allow(dead_code)]
 mod ram;
 
 mod audio;
@@ -10,7 +7,6 @@ mod audio;
 mod shared;
 use std::{fs::File, path::PathBuf, time::UNIX_EPOCH};
 
-use enum_dispatch::enum_dispatch;
 use image::{DynamicImage, GenericImageView, ImageReader};
 use palette::{convert::FromColorUnclamped, Hsv, Srgb};
 use rand::seq::IteratorRandom;
@@ -239,11 +235,8 @@ impl MIDIColor {
 
 /// The basic shared functions in a midi file. The columns related functions are
 /// inside the [`MIDIFile`] trait.
-#[allow(dead_code)]
-#[enum_dispatch]
 pub trait MIDIFileBase {
     fn midi_length(&self) -> Option<f64>;
-    fn parsed_up_to(&self) -> Option<f64>;
 
     fn timer(&self) -> &TimeKeeper;
     fn timer_mut(&mut self) -> &mut TimeKeeper;
@@ -251,8 +244,6 @@ pub trait MIDIFileBase {
     fn stats(&self) -> MIDIFileStats;
 
     fn allows_seeking_backward(&self) -> bool;
-
-    fn signature(&self) -> &MIDIFileUniqueSignature;
 }
 
 /// This trait contains a function to retrieve the column view of the midi
@@ -287,10 +278,52 @@ pub struct DisplacedMIDINote {
     pub color: MIDIColor,
 }
 
-#[enum_dispatch(MIDIFileBase)]
 pub enum MIDIFileUnion {
     InRam(ram::InRamMIDIFile),
     Live(live::LiveLoadMIDIFile),
     Cake(cake::CakeMIDIFile),
     Pie(pie::PieMIDIFile),
+}
+
+impl MIDIFileBase for MIDIFileUnion {
+    fn midi_length(&self) -> Option<f64> {
+        match self {
+            MIDIFileUnion::InRam(f) => f.midi_length(),
+            MIDIFileUnion::Live(f) => f.midi_length(),
+            MIDIFileUnion::Cake(f) => f.midi_length(),
+            MIDIFileUnion::Pie(f) => f.midi_length(),
+        }
+    }
+    fn timer(&self) -> &TimeKeeper {
+        match self {
+            MIDIFileUnion::InRam(f) => f.timer(),
+            MIDIFileUnion::Live(f) => f.timer(),
+            MIDIFileUnion::Cake(f) => f.timer(),
+            MIDIFileUnion::Pie(f) => f.timer(),
+        }
+    }
+    fn timer_mut(&mut self) -> &mut TimeKeeper {
+        match self {
+            MIDIFileUnion::InRam(f) => f.timer_mut(),
+            MIDIFileUnion::Live(f) => f.timer_mut(),
+            MIDIFileUnion::Cake(f) => f.timer_mut(),
+            MIDIFileUnion::Pie(f) => f.timer_mut(),
+        }
+    }
+    fn stats(&self) -> MIDIFileStats {
+        match self {
+            MIDIFileUnion::InRam(f) => f.stats(),
+            MIDIFileUnion::Live(f) => f.stats(),
+            MIDIFileUnion::Cake(f) => f.stats(),
+            MIDIFileUnion::Pie(f) => f.stats(),
+        }
+    }
+    fn allows_seeking_backward(&self) -> bool {
+        match self {
+            MIDIFileUnion::InRam(f) => f.allows_seeking_backward(),
+            MIDIFileUnion::Live(f) => f.allows_seeking_backward(),
+            MIDIFileUnion::Cake(f) => f.allows_seeking_backward(),
+            MIDIFileUnion::Pie(f) => f.allows_seeking_backward(),
+        }
+    }
 }

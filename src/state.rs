@@ -63,7 +63,7 @@ impl WasabiState {
             show_about: false,
             show_render: false,
 
-            render_state: RenderState::new(),
+            render_state: RenderState::default(),
 
             settings_tab: SettingsTab::default(),
 

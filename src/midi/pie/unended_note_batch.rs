@@ -1,22 +1,27 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    hash::Hash,
+};
+
+use rustc_hash::FxHashMap;
 
 pub struct RemovedValue<T> {
     pub value: T,
     pub is_last: bool,
 }
 
-pub struct UnendedNotes<K: Ord, T> {
+pub struct UnendedNotes<K: Hash + Eq, T> {
     id_counter: u32,
     notes: BTreeMap<u32, T>,
-    ids: BTreeMap<K, VecDeque<u32>>,
+    ids: FxHashMap<K, VecDeque<u32>>,
 }
 
-impl<K: Ord, T> UnendedNotes<K, T> {
+impl<K: Hash + Eq, T> UnendedNotes<K, T> {
     pub fn new() -> Self {
         UnendedNotes {
             id_counter: 0,
             notes: BTreeMap::new(),
-            ids: BTreeMap::new(),
+            ids: FxHashMap::default(),
         }
     }
 
@@ -55,7 +60,7 @@ impl<K: Ord, T> UnendedNotes<K, T> {
 
     pub fn drain_all(&mut self) -> impl '_ + Iterator<Item = T> {
         let notes = std::mem::take(&mut self.notes);
-        self.ids = BTreeMap::new();
+        self.ids = FxHashMap::default();
 
         notes.into_values()
     }

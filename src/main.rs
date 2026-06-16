@@ -1,4 +1,3 @@
-#![feature(type_alias_impl_trait)]
 #![feature(coroutines)]
 #![feature(impl_trait_in_assoc_type)]
 #![windows_subsystem = "windows"]
