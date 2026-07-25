@@ -1,20 +1,15 @@
-#![allow(dead_code)]
-
 use std::ops::Range;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum KeyboardParams {
-    SameWidth,
-    Classic {
-        black_key_2_set_offset: f32,
-        black_key_3_set_offset: f32,
-        black_key_scale: f32,
-    },
+pub struct KeyboardParams {
+    pub black_key_2_set_offset: f32,
+    pub black_key_3_set_offset: f32,
+    pub black_key_scale: f32,
 }
 
 impl Default for KeyboardParams {
     fn default() -> Self {
-        KeyboardParams::Classic {
+        KeyboardParams {
             black_key_2_set_offset: 0.35,
             black_key_3_set_offset: 0.45,
             black_key_scale: 0.74,
@@ -69,96 +64,52 @@ fn load_key_numbers() -> [usize; 257] {
 
 impl KeyboardLayout {
     pub fn new(params: &KeyboardParams) -> KeyboardLayout {
+        let KeyboardParams {
+            black_key_2_set_offset,
+            black_key_3_set_offset,
+            black_key_scale,
+        } = *params;
+
         let mut keys = [Default::default(); 257];
         let mut notes = [Default::default(); 257];
 
-        // let mut key_numbers = Vec::new();
+        let key_numbers = load_key_numbers();
 
-        let last_key = 256.0;
+        for i in 0..257 {
+            if !is_black(i) {
+                let left = key_numbers[i] as f32;
+                let right = left + 1.0;
 
-        match params {
-            KeyboardParams::SameWidth => {
-                for i in 0..257 {
-                    let left = i as f32 / last_key;
-                    let right = (i + 1) as f32 / last_key;
+                notes[i] = KeyPosition::new(i, left, right);
+                keys[i] = KeyPosition::new(i, left, right);
+            } else {
+                let half_width = black_key_scale / 2.0;
+                let black_num = key_numbers[i] % 5;
+                let mut offset = half_width;
 
-                    notes[i] = KeyPosition::new(i, left, right);
-
-                    let mut left = left;
-                    let mut right = right;
-
-                    let n = i % 12;
-
-                    let half = 1.0 / 2.0;
-                    let third = 1.0 / 3.0;
-                    let quarter = 1.0 / 4.0;
-
-                    if n == 0 {
-                        right += third * 2.0;
-                    } else if n == 2 {
-                        left -= third;
-                        right += third;
-                    } else if n == 4 {
-                        left -= third * 2.0
-                    } else if n == 5 {
-                        right += half + quarter;
-                    } else if n == 7 {
-                        left -= quarter;
-                        right += half;
-                    } else if n == 9 {
-                        left -= half;
-                        right += quarter;
-                    } else if n == 11 {
-                        left -= half + quarter;
-                    }
-
-                    keys[i] = KeyPosition::new(i, left, right);
+                if black_num == 0 {
+                    offset += half_width * black_key_2_set_offset;
+                } else if black_num == 2 {
+                    offset += half_width * black_key_3_set_offset;
+                } else if black_num == 1 {
+                    offset -= half_width * black_key_2_set_offset;
+                } else if black_num == 4 {
+                    offset -= half_width * black_key_3_set_offset;
                 }
-            }
-            KeyboardParams::Classic {
-                black_key_2_set_offset,
-                black_key_3_set_offset,
-                black_key_scale,
-            } => {
-                let key_numbers = load_key_numbers();
 
-                for i in 0..257 {
-                    if !is_black(i) {
-                        let left = key_numbers[i] as f32;
-                        let right = left + 1.0;
+                // Black keys are positioned relative to the white key above them
+                let left = key_numbers[i + 1] as f32 - offset;
+                let right = left + black_key_scale;
 
-                        notes[i] = KeyPosition::new(i, left, right);
-                        keys[i] = KeyPosition::new(i, left, right);
-                    } else {
-                        let _i = i + 1;
-                        let half_width = black_key_scale / 2.0;
-                        let black_num = key_numbers[i] % 5;
-                        let mut offset = half_width;
-
-                        if black_num == 0 {
-                            offset += half_width * black_key_2_set_offset;
-                        } else if black_num == 2 {
-                            offset += half_width * black_key_3_set_offset;
-                        } else if black_num == 1 {
-                            offset -= half_width * black_key_2_set_offset;
-                        } else if black_num == 4 {
-                            offset -= half_width * black_key_3_set_offset;
-                        }
-
-                        let left = key_numbers[_i] as f32 - offset;
-                        let right = left + black_key_scale;
-
-                        notes[i] = KeyPosition::new(i, left, right);
-                        keys[i] = KeyPosition::new(i, left, right);
-                    }
-                }
+                notes[i] = KeyPosition::new(i, left, right);
+                keys[i] = KeyPosition::new(i, left, right);
             }
         }
 
         KeyboardLayout { keys, notes }
     }
 
-    pub fn get_range_for_keys(&self, first_key: usize, last_key: usize) -> KeyboardRange {
+    fn get_range_for_keys(&self, first_key: usize, last_key: usize) -> KeyboardRange {
         KeyboardRange {
             left: self.keys[first_key].left,
             right: self.keys[last_key].right,
@@ -184,36 +135,6 @@ impl KeyboardLayout {
             visible_range: left_key..right_key,
         }
     }
-
-    pub fn get_view_for_range(&'_ self, range: KeyboardRange) -> KeyboardView<'_> {
-        let mut left_key = self
-            .keys
-            .iter()
-            .position(|x| x.right >= range.left)
-            .unwrap_or(257);
-        let mut right_key = self
-            .keys
-            .iter()
-            .position(|x| x.left >= range.right)
-            .unwrap_or(257);
-
-        if self.keys[left_key].black {
-            left_key -= 1;
-        }
-        if self.keys[right_key - 1].black {
-            right_key += 1;
-        }
-
-        if left_key > right_key {
-            std::mem::swap(&mut left_key, &mut right_key);
-        }
-
-        KeyboardView {
-            layout: self,
-            range,
-            visible_range: left_key..right_key,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -223,10 +144,6 @@ pub struct KeyboardRange {
 }
 
 impl KeyboardRange {
-    pub fn new(left: f32, right: f32) -> KeyboardRange {
-        KeyboardRange { left, right }
-    }
-
     fn transform(&self, x: f32) -> f32 {
         (x - self.left) / (self.right - self.left)
     }
@@ -259,14 +176,6 @@ impl<'a> KeyboardView<'a> {
 
     pub fn iter_visible_keys(&self) -> impl '_ + Iterator<Item = (usize, KeyPosition)> {
         self.visible_range.clone().map(|i| (i, self.key(i)))
-    }
-
-    pub fn iter_all_keys(&self) -> impl '_ + Iterator<Item = KeyPosition> {
-        (0..257).map(|i| self.key(i))
-    }
-
-    pub fn iter_visible_notes(&self) -> impl '_ + Iterator<Item = (usize, KeyPosition)> {
-        self.visible_range.clone().map(|i| (i, self.note(i)))
     }
 
     pub fn iter_all_notes(&self) -> impl '_ + Iterator<Item = KeyPosition> {

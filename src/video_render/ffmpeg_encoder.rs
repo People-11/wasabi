@@ -6,8 +6,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 type BufferPool = Arc<Mutex<Vec<Vec<u8>>>>;
-enum Msg { Frame(Vec<u8>), Finish }
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Encoder { Nvenc, Vaapi, Amf, Qsv, Soft }
 
@@ -26,7 +24,7 @@ impl Encoder {
 }
 
 pub struct FFmpegEncoder {
-    sender: Option<SyncSender<Msg>>, pool: BufferPool,
+    sender: Option<SyncSender<Vec<u8>>>, pool: BufferPool,
     thread: Option<JoinHandle<std::io::Result<()>>>,
     frame_size: usize,
 }
@@ -55,15 +53,13 @@ impl FFmpegEncoder {
         for _ in 0..4 { pool.lock().unwrap().push(vec![0u8; frame_size]); }
 
         let mut proc = cmd.spawn()?;
-        let (tx, rx) = mpsc::sync_channel::<Msg>(4);
+        let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(4);
         let pool_clone = Arc::clone(&pool);
         let thread = thread::spawn(move || {
             let mut stdin = proc.stdin.take().unwrap();
-            while let Ok(msg) = rx.recv() {
-                match msg {
-                    Msg::Frame(d) => { stdin.write_all(&d)?; pool_clone.lock().unwrap().push(d); }
-                    Msg::Finish => break,
-                }
+            while let Ok(d) = rx.recv() {
+                stdin.write_all(&d)?;
+                pool_clone.lock().unwrap().push(d);
             }
             drop(stdin);
             if proc.wait()?.success() { Ok(()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, "FFmpeg failed")) }
@@ -75,11 +71,12 @@ impl FFmpegEncoder {
     pub fn write_frame_slice(&mut self, data: &[u8]) -> std::io::Result<()> {
         let mut buf = self.pool.lock().unwrap().pop().unwrap_or_else(|| vec![0u8; self.frame_size]);
         buf.copy_from_slice(data);
-        self.sender.as_ref().unwrap().send(Msg::Frame(buf)).map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed"))
+        self.sender.as_ref().unwrap().send(buf).map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed"))
     }
 
     pub fn finish(&mut self) -> std::io::Result<()> {
-        if let Some(s) = self.sender.take() { let _ = s.send(Msg::Finish); }
+        // Dropping the sender is what tells the writer thread to wrap up
+        self.sender.take();
         self.thread.take().map(|t| t.join().unwrap()).unwrap_or(Ok(()))
     }
 }

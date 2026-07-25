@@ -75,7 +75,7 @@ impl ApplicationHandler for WasabiApplication {
             matches!(
                 cause,
                 winit::event::StartCause::Init | winit::event::StartCause::ResumeTimeReached { .. }
-            ) && self.render_timer.map_or(true, |t| Instant::now() >= t)
+            ) && self.render_timer.is_none_or(|t| Instant::now() >= t)
         } else {
             true
         };

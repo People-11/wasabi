@@ -2,22 +2,41 @@ use std::sync::{Arc, Mutex};
 
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
+use crate::midi::MIDIColor;
+
 use super::{
     blocks::{FlatPieBlocks, PieBlockInfo},
     tree_serializer::TreeSerializer,
 };
 
-#[derive(Clone)]
-pub enum NoteEvent {
-    On {
-        time: i32,
-        channel_track: i32,
-        color: i32,
-    },
-    Off {
-        time: i32,
-        channel_track: i32,
-    },
+const OFF_FLAG: i32 = i32::MIN;
+
+/// One note-on or note-off, as handed to the serializer threads.
+///
+/// Kept at 8 bytes: this is the file's biggest data stream (two of these per
+/// note, so billions of them), and the note's color used to ride along here even
+/// though it is just a lookup on `channel_track` that the worker can do itself.
+#[derive(Clone, Copy)]
+pub struct NoteEvent {
+    time: i32,
+    /// The channel/track, with the sign bit set to mark a note-off
+    tagged_channel_track: i32,
+}
+
+impl NoteEvent {
+    pub fn on(time: i32, channel_track: i32) -> Self {
+        NoteEvent {
+            time,
+            tagged_channel_track: channel_track,
+        }
+    }
+
+    pub fn off(time: i32, channel_track: i32) -> Self {
+        NoteEvent {
+            time,
+            tagged_channel_track: channel_track | OFF_FLAG,
+        }
+    }
 }
 
 pub struct ThreadedTreeSerializers {
@@ -35,7 +54,7 @@ impl ThreadedTreeSerializers {
         vec![Vec::new(); 256]
     }
 
-    pub fn new() -> ThreadedTreeSerializers {
+    pub fn new(colors: Vec<MIDIColor>) -> ThreadedTreeSerializers {
         let trees = (0..256).map(|_| TreeSerializer::new()).collect::<Vec<_>>();
         let trees = Arc::new(Mutex::new(trees));
 
@@ -45,26 +64,19 @@ impl ThreadedTreeSerializers {
         let trees_thread = trees.clone();
         let handle = std::thread::spawn(move || {
             let mut trees = trees_thread.lock().unwrap();
+            let colors = &colors;
 
             for mut vecs in rcv_in.into_iter() {
                 vecs.par_iter_mut()
                     .zip(trees.par_iter_mut())
-                    .for_each(move |(events, tree)| {
+                    .for_each(|(events, tree)| {
                         for event in events.drain(..) {
-                            match event {
-                                NoteEvent::On {
-                                    time,
-                                    channel_track,
-                                    color,
-                                } => {
-                                    tree.start_note(time, channel_track, color);
-                                }
-                                NoteEvent::Off {
-                                    time,
-                                    channel_track,
-                                } => {
-                                    tree.end_note(time, channel_track);
-                                }
+                            let tagged = event.tagged_channel_track;
+                            if tagged < 0 {
+                                tree.end_note(event.time, tagged & i32::MAX);
+                            } else {
+                                let color = colors[tagged as usize].as_u32() as i32;
+                                tree.start_note(event.time, tagged, color);
                             }
                         }
                     });

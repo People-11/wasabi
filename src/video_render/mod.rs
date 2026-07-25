@@ -24,27 +24,3 @@ pub struct RenderConfig {
     pub quality: u8,
     pub settings: WasabiSettings,
 }
-
-impl RenderConfig {
-    pub fn new(
-        midi_path: PathBuf,
-        ffmpeg_path: PathBuf,
-        output_path: PathBuf,
-        resolution: RenderResolution,
-        frame_rate: RenderFrameRate,
-        parse_mode: ParseMode,
-        quality: u8,
-        settings: WasabiSettings,
-    ) -> Self {
-        Self {
-            midi_path,
-            ffmpeg_path,
-            output_path,
-            resolution,
-            frame_rate,
-            parse_mode,
-            quality,
-            settings,
-        }
-    }
-}

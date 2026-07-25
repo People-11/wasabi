@@ -10,7 +10,7 @@ use crate::{
     utils::convert_seconds_to_time_string,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct GuiMidiStats {
     pub time_passed: f64,
     pub time_total: f64,
@@ -20,33 +20,6 @@ pub struct GuiMidiStats {
     pub fps: u32,
     pub nps: u64,
     pub note_stats: MIDIFileStats,
-}
-
-impl GuiMidiStats {
-    pub fn empty() -> GuiMidiStats {
-        GuiMidiStats {
-            time_passed: 0.0,
-            time_total: 0.0,
-            notes_on_screen: 0,
-            polyphony: None,
-            voice_count: None,
-            fps: 0,
-            nps: 0,
-            note_stats: MIDIFileStats::default(),
-        }
-    }
-
-    pub fn set_voice_count(&mut self, voices: Option<u64>) {
-        self.voice_count = voices;
-    }
-
-    pub fn set_rendered_note_count(&mut self, notes: u64) {
-        self.notes_on_screen = notes;
-    }
-
-    pub fn set_polyphony(&mut self, polyphony: Option<u64>) {
-        self.polyphony = polyphony;
-    }
 }
 
 /// Standalone function to draw the statistics panel
@@ -235,7 +208,6 @@ impl GuiWasabiWindow {
         // Get FPS
         stats.fps = self.fps.get_fps() as u32;
 
-        // Delegate to static function
         draw_stats_panel(ctx, pos, &stats, settings, is_video_render);
     }
 }
@@ -260,17 +232,8 @@ impl NpsCounter {
     }
 
     pub fn read(&self) -> u64 {
-        let old = if let Some((_time, front_passed)) = self.ticks.front() {
-            *front_passed as f64
-        } else {
-            0.0
-        };
-
-        let last = if let Some((_time, back_passed)) = self.ticks.back() {
-            *back_passed as f64
-        } else {
-            0.0
-        };
+        let old = self.ticks.front().map_or(0.0, |(_, passed)| *passed as f64);
+        let last = self.ticks.back().map_or(0.0, |(_, passed)| *passed as f64);
 
         ((last - old).max(0.0) / Self::NPS_WINDOW).round() as u64
     }

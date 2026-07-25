@@ -11,7 +11,7 @@ use vulkano::{
     sync::{self, GpuFuture}, VulkanLibrary,
 };
 use crate::{
-    gui::window::{keyboard::GuiKeyboard, keyboard_layout::KeyboardLayout, scene::{note_list_system::NoteRenderer, pie_system::PieRenderer}, stats::{draw_stats_panel, GuiMidiStats, NpsCounter}},
+    gui::window::{keyboard::draw_keyboard, keyboard_layout::KeyboardLayout, scene::{note_list_system::NoteRenderer, pie_system::PieRenderer}, stats::{draw_stats_panel, GuiMidiStats, NpsCounter}},
     midi::{MIDIFileBase, MIDIFileUnion}, settings::WasabiSettings, video_render::{egui_render_pass::EguiRenderer, RenderConfig},
 };
 use crate::gui::window::render_state::ParseMode;
@@ -26,7 +26,6 @@ pub struct OffscreenRenderer {
     cb_allocator: Arc<StandardCommandBufferAllocator>,
     egui_renderer: EguiRenderer,
     scene_renderer: SceneRenderer,
-    gui_keyboard: GuiKeyboard,
     keyboard_layout: KeyboardLayout,
     stats: GuiMidiStats,
     nps_counter: NpsCounter,
@@ -84,8 +83,8 @@ impl OffscreenRenderer {
             cb_allocator: Arc::new(StandardCommandBufferAllocator::new(device.clone(), Default::default())),
             egui_renderer,
             scene_renderer,
-            gui_keyboard: GuiKeyboard::new(), keyboard_layout: KeyboardLayout::new(&Default::default()),
-            stats: GuiMidiStats::empty(), nps_counter: NpsCounter::default(), ppp, final_image, depth_buffer, staging_buffer,
+            keyboard_layout: KeyboardLayout::new(&Default::default()),
+            stats: GuiMidiStats::default(), nps_counter: NpsCounter::default(), ppp, final_image, depth_buffer, staging_buffer,
             width, keyboard_height, notes_height, viewport,
         })
     }
@@ -109,8 +108,8 @@ impl OffscreenRenderer {
             _ => return Err("Mismatched renderer and MIDI mode".into()),
         };
         
-        self.stats.set_rendered_note_count(res.notes_rendered);
-        self.stats.set_polyphony(res.polyphony);
+        self.stats.notes_on_screen = res.notes_rendered;
+        self.stats.polyphony = res.polyphony;
         if let Some(len) = midi_union.midi_length() { self.stats.time_total = len; }
         self.stats.time_passed = time;
         self.stats.note_stats = midi_union.stats();
@@ -123,7 +122,7 @@ impl OffscreenRenderer {
 
         egui::Area::new("k".into()).fixed_pos(Pos2::new(0.0, n_h_p)).show(ctx, |ui| {
              ui.allocate_ui(egui::Vec2::new(w_p, k_h_p), |ui| {
-                 self.gui_keyboard.draw(ui, &key_view, &res.key_colors, &settings.scene.bar_color);
+                 draw_keyboard(ui, &key_view, &res.key_colors, &settings.scene.bar_color);
              });
         });
         draw_stats_panel(ctx, Pos2::new(10.0, 10.0), &self.stats, settings, true);

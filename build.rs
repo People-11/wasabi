@@ -32,6 +32,10 @@ fn write_icon(s: u32, tree: &Tree, icon_dir: &mut IconDir) {
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=assets/logo.svg");
+    println!("cargo:rerun-if-changed=build.rs");
+
+    let out_dir = std::env::var("OUT_DIR").unwrap();
     let svg = std::fs::read_to_string("assets/logo.svg").unwrap();
     let tree = Tree::from_str(&svg, &Options::default()).unwrap();
 
@@ -40,12 +44,11 @@ fn main() {
     for s in [16, 24, 32, 48, 96, 128, 256] {
         write_icon(s, &tree, &mut icon_dir);
     }
-    let icon_path = Path::new(std::env::var_os("OUT_DIR").as_ref().unwrap()).join("icon.ico");
+    let icon_path = Path::new(&out_dir).join("icon.ico");
 
     icon_dir.write(File::create(&icon_path).unwrap()).unwrap();
     #[cfg(windows)]
     {
-        let out_dir = std::env::var("OUT_DIR").unwrap();
         let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap();
 
         if target_env == "msvc" {
@@ -66,9 +69,6 @@ fn main() {
             println!("cargo:rustc-link-arg={res_path}");
         }
     }
-
-    #[cfg(not(windows))]
-    println!("cargo:rerun-if-changed=assets/logo.svg");
 
     #[cfg(any(
         target_os = "linux",

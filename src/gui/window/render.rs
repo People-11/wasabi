@@ -333,16 +333,16 @@ impl GuiWasabiWindow {
                     .clicked()
                 {
                     // Start render logic
-                    let config = RenderConfig::new(
-                        state.render_state.midi_path.clone().unwrap(),
-                        state.render_state.ffmpeg_path.clone().unwrap(),
-                        state.render_state.output_path.clone().unwrap(),
-                        state.render_state.resolution,
-                        state.render_state.frame_rate,
-                        state.render_state.parse_mode,
-                        state.render_state.quality,
-                        settings.clone(),
-                    );
+                    let config = RenderConfig {
+                        midi_path: state.render_state.midi_path.clone().unwrap(),
+                        ffmpeg_path: state.render_state.ffmpeg_path.clone().unwrap(),
+                        output_path: state.render_state.output_path.clone().unwrap(),
+                        resolution: state.render_state.resolution,
+                        frame_rate: state.render_state.frame_rate,
+                        parse_mode: state.render_state.parse_mode,
+                        quality: state.render_state.quality,
+                        settings: settings.clone(),
+                    };
 
                     state.render_state.progress.reset();
                     state.render_state.is_rendering = true;

@@ -10,7 +10,7 @@ use vulkano::{
         Queue, QueueCreateInfo, QueueFlags,
     },
     format::Format,
-    instance::{Instance, InstanceCreateInfo, InstanceExtensions},
+    instance::{Instance, InstanceCreateInfo},
     swapchain::Surface,
     sync::GpuFuture,
     Version, VulkanLibrary,
@@ -50,20 +50,14 @@ impl Renderer {
         settings: &mut WasabiSettings,
         state: &WasabiState,
     ) -> Self {
-        // Why
         let library = VulkanLibrary::new().unwrap();
-
-        // Add instance extensions based on needs
-        let instance_extensions = InstanceExtensions {
-            ..Surface::required_extensions(event_loop).unwrap()
-        };
 
         // Create instance
         let instance = Instance::new(
             library,
             InstanceCreateInfo {
                 application_version: Version::V1_2,
-                enabled_extensions: instance_extensions,
+                enabled_extensions: Surface::required_extensions(event_loop).unwrap(),
                 ..Default::default()
             },
         )
@@ -159,6 +153,8 @@ impl Renderer {
             format: swap_chain.state().images_state.format,
         };
 
+        egui_extras::install_image_loaders(&gui_render_data.gui.context());
+
         let gui_window = GuiWasabiWindow::new(&mut gui_render_data, settings, state);
 
         Self {
@@ -172,11 +168,11 @@ impl Renderer {
         }
     }
 
-    pub fn queue(&self) -> Arc<Queue> {
+    fn queue(&self) -> Arc<Queue> {
         self.queue.clone()
     }
 
-    pub fn device(&self) -> Arc<Device> {
+    fn device(&self) -> Arc<Device> {
         self.device.clone()
     }
 
@@ -184,7 +180,7 @@ impl Renderer {
         self.window.clone()
     }
 
-    pub fn format(&self) -> Format {
+    fn format(&self) -> Format {
         self.swap_chain.state().images_state.format
     }
 
@@ -257,7 +253,6 @@ impl Renderer {
                 renderer: &mut gui_render_data,
                 frame: &frame,
             };
-            egui_extras::install_image_loaders(&gui_state.renderer.gui.context());
             self.gui_window.layout(&mut gui_state, settings, state);
         });
 

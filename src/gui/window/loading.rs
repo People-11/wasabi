@@ -44,7 +44,7 @@ impl LoadingStatus {
 
     pub fn update_message(&self, new_message: String) {
         if let Some(info) = self.0.write().unwrap().as_mut() {
-            info.message = new_message.clone();
+            info.message = new_message;
         }
     }
 
@@ -60,8 +60,6 @@ impl LoadingStatus {
                 .frame(frame)
                 .resizable(false)
                 .collapsible(false)
-                .title_bar(true)
-                .enabled(true)
                 .movable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {

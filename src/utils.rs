@@ -20,11 +20,10 @@ pub fn convert_seconds_to_time_string(sec: f64) -> String {
     let time_min = sec as i64 / 60;
 
     format!(
-        "{:0width$}:{:0width$}.{}",
+        "{:02}:{:02}.{}",
         time_min.abs(),
         time_sec.abs(),
-        time_millis.abs(),
-        width = 2
+        time_millis.abs()
     )
 }
 
@@ -104,11 +103,8 @@ pub fn create_reset_midi_messages() -> Vec<u32> {
 
     for ch in 0..16 {
         let code: u32 = 0xB << 4 | ch;
-        for cc in [120, 121] {
-            let z = 0 << 8;
-            let cc = cc << 8 | z;
-            let cc = cc | code;
-            out.push(cc);
+        for cc in [120u32, 121] {
+            out.push(cc << 8 | code);
         }
     }
 

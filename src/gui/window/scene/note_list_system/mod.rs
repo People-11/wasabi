@@ -52,7 +52,6 @@ impl NoteRenderer {
             key: u8,
             remaining: usize,
             color: Option<MIDIColor>,
-            border_width: f32,
         }
 
         let mut total_notes = 0;
@@ -77,7 +76,6 @@ impl NoteRenderer {
                     key: i as u8,
                     remaining: length,
                     color: None,
-                    border_width,
                 });
                 total_notes += length;
             }
@@ -94,7 +92,6 @@ impl NoteRenderer {
                     key: i as u8,
                     remaining: length,
                     color: None,
-                    border_width,
                 });
                 total_notes += length;
             }
@@ -109,6 +106,7 @@ impl NoteRenderer {
             final_image,
             key_view,
             view_range,
+            border_width as u32,
             bg_color,
             viewport,
             |buffer| {
@@ -134,14 +132,12 @@ impl NoteRenderer {
 
                     // Hoist per-column constants to avoid redundant casts per note
                     let key_u32 = column.key as u32;
-                    let border_width_u32 = column.border_width as u32;
 
                     for i in 0..allowed_to_write {
                         let note = column.iter.next().unwrap();
                         mapped_buffer[i + offset] = NoteVertex {
                             start_length: [note.start, note.len],
                             key_color: key_u32 | (note.color.as_u32() << 8),
-                            border_width: border_width_u32,
                         };
 
                         if note.start <= 0.0 && note.start + note.len > 0.0 {

@@ -5,18 +5,20 @@ layout(triangle_strip, max_vertices = 4) out;
 
 layout(location = 0) in vec2 start_length[];
 layout(location = 1) in uint key_color[];
-layout(location = 2) in uint border_width_in[];
 
 layout(location = 0) out vec3 frag_color;
 layout(location = 1) out vec2 frag_tex_coord;
 layout(location = 2) out vec2 v_note_size;
 layout(location = 3) out vec2 win_size;
-layout(location = 4) out uint border_width;
 
+// border_width is constant for the whole frame, so it lives here instead of in
+// every vertex. That keeps the vertex at 12 bytes rather than 16, which is a
+// straight 25% off the per-frame vertex upload.
 layout(push_constant) uniform PushConstants {
     float height_time;
     float win_width;
     float win_height;
+    uint border_width;
 } consts;
 
 struct KeyPosition {
@@ -56,7 +58,6 @@ void main()
     frag_tex_coord = vec2(0, 0);
     v_note_size = note_size_out;
     win_size = win_size_out;
-    border_width = border_width_in[0];
     EmitVertex();
 
     gl_Position = vec4(right, start, 0, 1);
@@ -64,7 +65,6 @@ void main()
     frag_tex_coord = vec2(1, 0);
     v_note_size = note_size_out;
     win_size = win_size_out;
-    border_width = border_width_in[0];
     EmitVertex();
 
     gl_Position = vec4(left, end, 0, 1);
@@ -72,7 +72,6 @@ void main()
     frag_tex_coord = vec2(0, 1);
     v_note_size = note_size_out;
     win_size = win_size_out;
-    border_width = border_width_in[0];
     EmitVertex();
 
     gl_Position = vec4(right, end, 0, 1);
@@ -80,7 +79,6 @@ void main()
     frag_tex_coord = vec2(1, 1);
     v_note_size = note_size_out;
     win_size = win_size_out;
-    border_width = border_width_in[0];
     EmitVertex();
 
     EndPrimitive();

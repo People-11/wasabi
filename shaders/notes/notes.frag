@@ -4,9 +4,15 @@ layout(location = 0) in vec3 frag_color;
 layout(location = 1) in vec2 frag_tex_coord;
 layout(location = 2) in vec2 v_note_size;
 layout(location = 3) in vec2 win_size;
-layout(location = 4) in flat uint border_width;
 
 layout(location = 0) out vec4 out_color;
+
+layout(push_constant) uniform PushConstants {
+    float height_time;
+    float win_width;
+    float win_height;
+    uint border_width;
+} consts;
 
 const float pi = 3.1415926535897;
 
@@ -21,8 +27,8 @@ void main() {
     float horiz_width_pixels = v_note_size.x / 2 * win_size.x;
     float vert_width_pixels = v_note_size.y / 2 * win_size.y;
 
-    float horiz_margin = 1 / horiz_width_pixels * border_width;
-    float vert_margin = 1 / vert_width_pixels * border_width;
+    float horiz_margin = 1 / horiz_width_pixels * consts.border_width;
+    float vert_margin = 1 / vert_width_pixels * consts.border_width;
 
     bool border =
         v_uv.x < horiz_margin ||

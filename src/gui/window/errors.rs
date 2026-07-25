@@ -103,8 +103,7 @@ impl GuiMessageSystem {
         };
         let link = format!(
             "https://github.com/BlackMIDIDevs/wasabi/releases/download/{}/{}",
-            version.clone(),
-            filename
+            version, filename
         );
 
         self.add(GuiMessage {
@@ -121,11 +120,12 @@ impl GuiMessageSystem {
     }
 
     pub fn show(&self, ctx: &Context) {
-        self.errors.lock().unwrap().retain(|m| m.visible);
-
         let frame = utils::create_window_frame(ctx);
 
-        for message in self.errors.lock().unwrap().iter_mut() {
+        let mut errors = self.errors.lock().unwrap();
+        errors.retain(|m| m.visible);
+
+        for message in errors.iter_mut() {
             egui::Window::new(&message.title)
                 .id(message.id)
                 .resizable(false)

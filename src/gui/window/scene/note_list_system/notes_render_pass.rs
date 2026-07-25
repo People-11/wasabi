@@ -44,8 +44,6 @@ pub struct NoteVertex {
     pub start_length: [f32; 2],
     #[format(R32_UINT)]
     pub key_color: u32,
-    #[format(R32_UINT)]
-    pub border_width: u32,
 }
 
 struct BufferSet {
@@ -237,6 +235,7 @@ impl NoteRenderPass {
         final_image: Arc<ImageView>,
         key_view: &KeyboardView,
         view_range: f32,
+        border_width: u32,
         bg_color: Option<[f32; 4]>,
         viewport: Option<Viewport>,
         mut fill_buffer: impl FnMut(&Subbuffer<[NoteVertex]>) -> NotePassStatus,
@@ -344,6 +343,7 @@ impl NoteRenderPass {
             height_time: view_range,
             win_width: img_dims[0] as f32,
             win_height: img_dims[1] as f32,
+            border_width,
         };
 
         unsafe {
@@ -416,16 +416,13 @@ mod vs {
 #version 450
 layout(location = 0) in vec2 start_length;
 layout(location = 1) in uint key_color;
-layout(location = 2) in uint border_width;
 
 layout(location = 0) out vec2 v_start_length;
 layout(location = 1) out uint v_key_color;
-layout(location = 2) out uint v_border_width;
 
 void main() {
     v_start_length = start_length;
     v_key_color = key_color;
-    v_border_width = border_width;
 }"
     }
 }

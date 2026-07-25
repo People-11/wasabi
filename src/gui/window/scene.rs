@@ -22,44 +22,40 @@ enum CurrentRenderer {
 
 impl CurrentRenderer {
     fn get_note_renderer(&mut self, renderer: &GuiRenderer) -> &mut NoteRenderer {
+        if !matches!(self, CurrentRenderer::Note(_)) {
+            *self = CurrentRenderer::Note(NoteRenderer::new(
+                renderer.device.clone(),
+                renderer.queue.clone(),
+                renderer.format,
+            ));
+        }
         match self {
             CurrentRenderer::Note(renderer) => renderer,
-            _ => {
-                let renderer = NoteRenderer::new(renderer.device.clone(), renderer.queue.clone(), renderer.format);
-                *self = CurrentRenderer::Note(renderer);
-                match self {
-                    CurrentRenderer::Note(renderer) => renderer,
-                    _ => unreachable!(),
-                }
-            }
+            _ => unreachable!(),
         }
     }
 
     fn get_cake_renderer(&mut self, renderer: &GuiRenderer) -> &mut CakeRenderer {
+        if !matches!(self, CurrentRenderer::Cake(_)) {
+            *self = CurrentRenderer::Cake(CakeRenderer::new(renderer));
+        }
         match self {
             CurrentRenderer::Cake(renderer) => renderer,
-            _ => {
-                let renderer = CakeRenderer::new(renderer);
-                *self = CurrentRenderer::Cake(renderer);
-                match self {
-                    CurrentRenderer::Cake(renderer) => renderer,
-                    _ => unreachable!(),
-                }
-            }
+            _ => unreachable!(),
         }
     }
 
     fn get_pie_renderer(&mut self, renderer: &GuiRenderer) -> &mut PieRenderer {
+        if !matches!(self, CurrentRenderer::Pie(_)) {
+            *self = CurrentRenderer::Pie(PieRenderer::new(
+                renderer.device.clone(),
+                renderer.queue.clone(),
+                renderer.format,
+            ));
+        }
         match self {
             CurrentRenderer::Pie(renderer) => renderer,
-            _ => {
-                let renderer = PieRenderer::new(renderer.device.clone(), renderer.queue.clone(), renderer.format);
-                *self = CurrentRenderer::Pie(renderer);
-                match self {
-                    CurrentRenderer::Pie(renderer) => renderer,
-                    _ => unreachable!(),
-                }
-            }
+            _ => unreachable!(),
         }
     }
 }

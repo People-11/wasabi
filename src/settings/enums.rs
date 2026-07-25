@@ -1,9 +1,8 @@
-use num_enum::FromPrimitive;
 use serde_derive::{Deserialize, Serialize};
-use std::{fmt::Debug, slice::Iter, str::FromStr};
+use std::{fmt::Debug, slice::Iter};
 
 #[repr(usize)]
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, FromPrimitive)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum MidiParsing {
     #[default]
@@ -24,26 +23,10 @@ impl MidiParsing {
     }
 }
 
-impl FromStr for MidiParsing {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "ram" => Ok(MidiParsing::Ram),
-            "live" => Ok(MidiParsing::Live),
-            "cake" => Ok(MidiParsing::Cake),
-            "pie" => Ok(MidiParsing::Pie),
-            s => Err(format!(
-                "{} was not expected. Expected one of `ram`, `live` or `cake`",
-                s
-            )),
-        }
-    }
-}
 
 #[allow(clippy::enum_variant_names)]
 #[repr(usize)]
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Synth {
     #[default]
@@ -69,26 +52,8 @@ impl Synth {
     }
 }
 
-impl FromStr for Synth {
-    type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "xsynth" => Ok(Synth::XSynth),
-            #[cfg(supported_os)]
-            "kdmapi" => Ok(Synth::Kdmapi),
-            #[cfg(all(supported_os, not(target_os = "freebsd")))]
-            "mididevice" => Ok(Synth::MidiDevice),
-            "none" => Ok(Synth::None),
-            s => Err(format!(
-                "{} was not expected. Expected one of `xsynth`, `kdmapi`, `mididevice` or `none`",
-                s
-            )),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
 #[serde(rename_all = "lowercase")]
 pub enum Statistics {
@@ -130,25 +95,9 @@ impl Statistics {
     }
 }
 
-impl FromStr for Statistics {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "time" => Ok(Statistics::Time),
-            "fps" => Ok(Statistics::Fps),
-            "voicecount" => Ok(Statistics::VoiceCount),
-            "rendered" => Ok(Statistics::Rendered),
-            "notecount" => Ok(Statistics::NoteCount),
-            "polyphony" => Ok(Statistics::Polyphony),
-            "nps" => Ok(Statistics::Nps),
-            s => Err(format!("{} was not expected.", s)),
-        }
-    }
-}
 
 #[repr(usize)]
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Colors {
     #[default]
@@ -172,20 +121,3 @@ impl Colors {
     }
 }
 
-impl FromStr for Colors {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "rainbow" => Ok(Colors::Rainbow),
-            "random" => Ok(Colors::Random),
-            "palette" => Ok(Colors::Palette),
-            "white" => Ok(Colors::White),
-            "pianofromabove" => Ok(Colors::PianoFromAbove),
-            s => Err(format!(
-                "{} was not expected. Expected one of `rainbow`, `random`, `palette`, `white` or `pianofromabove`",
-                s
-            )),
-        }
-    }
-}

@@ -199,7 +199,9 @@ impl WasabiSettings {
             }
         }
 
-        Self::load_and_save_defaults()
+        let cfg = Self::default();
+        cfg.save_to_file()?;
+        Ok(cfg)
     }
 
     pub fn save_to_file(&self) -> Result<(), WasabiError> {
@@ -213,12 +215,6 @@ impl WasabiSettings {
                 .expect("Error creating config");
         }
         Ok(())
-    }
-
-    fn load_and_save_defaults() -> Result<Self, WasabiError> {
-        let cfg = Self::default();
-        Self::save_to_file(&cfg)?;
-        Ok(cfg)
     }
 
     pub fn get_config_dir() -> PathBuf {

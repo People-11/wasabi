@@ -79,7 +79,7 @@ impl PieMIDIFile {
         let (audio_snd, audio_rcv) = crossbeam_channel::bounded::<Arc<Ev>>(1000);
 
         let key_join_handle = thread::spawn(move || {
-            let mut trees = ThreadedTreeSerializers::new();
+            let mut trees = ThreadedTreeSerializers::new(colors);
 
             let mut time = 0.0;
             let mut note_count = 0u64;
@@ -93,23 +93,15 @@ impl PieMIDIFile {
                     let track = event.track;
                     let note_event = match event.as_event() {
                         Event::NoteOn(e) => {
-                            let channel_track = channel_track(e.channel, track);
                             note_count += 1;
                             Some((
                                 e.key as usize,
-                                NoteEvent::On {
-                                    time: int_time,
-                                    channel_track,
-                                    color: colors[channel_track as usize].as_u32() as i32,
-                                },
+                                NoteEvent::on(int_time, channel_track(e.channel, track)),
                             ))
                         }
                         Event::NoteOff(e) => Some((
                             e.key as usize,
-                            NoteEvent::Off {
-                                time: int_time,
-                                channel_track: channel_track(e.channel, track),
-                            },
+                            NoteEvent::off(int_time, channel_track(e.channel, track)),
                         )),
                         _ => None,
                     };

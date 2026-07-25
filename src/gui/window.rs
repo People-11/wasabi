@@ -24,11 +24,11 @@ use egui::Frame;
 pub use loading::*;
 use settings::SettingsWindow;
 use time::Duration;
-use std::sync::mpsc::{self, Receiver};
+use tokio::sync::{oneshot, oneshot::Receiver};
 
 use crate::{
     gui::{
-        window::{keyboard::GuiKeyboard, scene::GuiRenderScene},
+        window::{keyboard::draw_keyboard, scene::GuiRenderScene},
         GuiRenderer, GuiState,
     },
     midi::{
@@ -42,7 +42,6 @@ use crate::{
 pub struct GuiWasabiWindow {
     render_scene: GuiRenderScene,
     keyboard_layout: keyboard_layout::KeyboardLayout,
-    keyboard: GuiKeyboard,
     midi_file: Option<MIDIFileUnion>,
     fps: fps::Fps,
     nps: stats::NpsCounter,
@@ -77,7 +76,6 @@ impl GuiWasabiWindow {
         GuiWasabiWindow {
             render_scene: GuiRenderScene::new(renderer),
             keyboard_layout: keyboard_layout::KeyboardLayout::new(&Default::default()),
-            keyboard: GuiKeyboard::new(),
             midi_file: None,
             fps: fps::Fps::new(),
             nps: Default::default(),
@@ -257,7 +255,7 @@ impl GuiWasabiWindow {
             .inner_margin(egui::Margin::same(0))
             .fill(settings.scene.bg_color);
 
-        let mut stats = stats::GuiMidiStats::empty();
+        let mut stats = stats::GuiMidiStats::default();
 
         let mut render_result_data: Option<scene::RenderResultData> = None;
 
@@ -321,8 +319,8 @@ impl GuiWasabiWindow {
                         midi_file,
                         settings.scene.note_speed,
                     );
-                    stats.set_rendered_note_count(result.notes_rendered);
-                    stats.set_polyphony(result.polyphony);
+                    stats.notes_on_screen = result.notes_rendered;
+                    stats.polyphony = result.polyphony;
                     render_result_data = Some(result);
                 }
             });
@@ -339,14 +337,12 @@ impl GuiWasabiWindow {
                     vec![None; 256]
                 };
 
-                self.keyboard
-                    .draw(ui, &key_view, &colors, &settings.scene.bar_color);
+                draw_keyboard(ui, &key_view, &colors, &settings.scene.bar_color);
             });
 
         // Render the stats
         if state.stats_visible {
-            let voice_count = state.synth.voice_count();
-            stats.set_voice_count(voice_count);
+            stats.voice_count = state.synth.voice_count();
 
             let pad = if settings.scene.statistics.floating {
                 12.0
@@ -369,7 +365,7 @@ impl GuiWasabiWindow {
             return;
         }
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = oneshot::channel();
         self.midi_picker = Some(rx);
         let last_location = state.last_midi_location.clone();
 
@@ -411,7 +407,7 @@ impl GuiWasabiWindow {
         let loading_status = state.loading_status.clone();
         let errors = state.errors.clone();
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = oneshot::channel();
         self.midi_loader = Some(rx);
 
         // Load the MIDI in a thread so the UI doesn't freeze and send it
