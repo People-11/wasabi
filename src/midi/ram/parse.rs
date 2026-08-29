@@ -18,11 +18,7 @@ use crate::{
         audio::ram::InRamAudioPlayer,
         open_file_and_signature,
         ram::{column::FlatNoteColumn, view::InRamNoteViewData},
-        shared::{
-            audio::{FlatAudio, RawAudioBlock},
-            timer::TimeKeeper,
-            track_channel::TrackAndChannel,
-        },
+        shared::{audio::FlatAudio, timer::TimeKeeper, track_channel::TrackAndChannel},
         MIDIColor,
     },
     settings::MidiSettings,
@@ -165,11 +161,8 @@ impl InRamMIDIFile {
             (keys, notes)
         });
 
-        let audio_join_handle = thread::spawn(move || {
-            let raw_blocks: Vec<_> =
-                RawAudioBlock::build_raw_blocks(audio_rcv.into_iter()).collect();
-            FlatAudio::build_blocks(raw_blocks.into_iter())
-        });
+        let audio_join_handle =
+            thread::spawn(move || FlatAudio::build_from_batches(audio_rcv.into_iter()));
         let mut length = 0.0;
 
         // Write events to the threads

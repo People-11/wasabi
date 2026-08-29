@@ -18,10 +18,7 @@ use crate::{
         audio::ram::InRamAudioPlayer,
         cake::tree_threader::{NoteEvent, ThreadedTreeSerializers},
         open_file_and_signature,
-        shared::{
-            audio::{FlatAudio, RawAudioBlock},
-            timer::TimeKeeper,
-        },
+        shared::{audio::FlatAudio, timer::TimeKeeper},
         MIDIColor,
     },
     settings::MidiSettings,
@@ -136,10 +133,8 @@ impl CakeMIDIFile {
             (keys, note_count)
         });
 
-        let audio_join_handle = thread::spawn(move || {
-            let raw_blocks_iter = RawAudioBlock::build_raw_blocks(audio_rcv.into_iter());
-            FlatAudio::build_blocks(raw_blocks_iter)
-        });
+        let audio_join_handle =
+            thread::spawn(move || FlatAudio::build_from_batches(audio_rcv.into_iter()));
 
         let mut length = 0.0;
 
