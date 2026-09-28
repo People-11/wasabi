@@ -1,6 +1,6 @@
 #![feature(coroutines)]
 #![feature(impl_trait_in_assoc_type)]
-
+#![windows_subsystem = "windows"]
 mod app;
 mod audio_playback;
 mod gui;
@@ -25,14 +25,29 @@ pub const WINDOW_SIZE: Size = Size::Logical(LogicalSize {
     height: 720.0,
 });
 
-pub const PRESENT_MODE: PresentMode = PresentMode::Immediate;
-pub const WAYLAND_PRESENT_MODE: PresentMode = PresentMode::Mailbox;
+pub const PRESENT_MODE: PresentMode = PresentMode::Mailbox;
+// On Windows VSync keeps Mailbox and waits for the compositor instead (see RenderThread::draw)
+#[cfg(windows)]
+pub const VSYNC_PRESENT_MODE: PresentMode = PRESENT_MODE;
+#[cfg(not(windows))]
 pub const VSYNC_PRESENT_MODE: PresentMode = PresentMode::Fifo;
 
 pub fn main() {
-    let event_loop = EventLoop::new().unwrap();
-    event_loop.set_control_flow(ControlFlow::Poll);
+    // Attach to parent console if available (e.g. running from CMD)
+    #[cfg(target_os = "windows")]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn AttachConsole(dwProcessId: u32) -> i32;
+        }
+        unsafe {
+            AttachConsole(u32::MAX);
+        }
+    }
 
-    let mut app = WasabiApplication::new();
+    let event_loop = EventLoop::new().unwrap();
+    event_loop.set_control_flow(ControlFlow::Wait);
+
+    let mut app = WasabiApplication::new(event_loop.create_proxy());
     event_loop.run_app(&mut app).unwrap();
 }

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use egui_winit::winit::{dpi::PhysicalSize, window::Window};
 use vulkano::{
@@ -6,12 +6,19 @@ use vulkano::{
     format::Format,
     image::{view::ImageView, ImageUsage},
     swapchain::{
-        PresentMode, Surface, Swapchain, SwapchainAcquireFuture, SwapchainCreateInfo,
-        SwapchainPresentInfo,
+        PresentFuture, PresentMode, Surface, Swapchain, SwapchainAcquireFuture,
+        SwapchainCreateInfo, SwapchainPresentInfo,
     },
-    sync::{self, GpuFuture},
+    sync::{self, future::FenceSignalFuture, GpuFuture},
     Validated, VulkanError,
 };
+use vulkano::device::DeviceOwned;
+
+/// How many frames the CPU may record ahead of the GPU. Resources that are rewritten
+/// every frame (e.g. scene images) need this many copies to never be in use when reused.
+pub const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
+type FrameFence = Arc<FenceSignalFuture<PresentFuture<Box<dyn GpuFuture>>>>;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct ImagesState {
@@ -29,6 +36,7 @@ pub struct ManagedSwapchain {
     swap_chain: Arc<Swapchain>,
     image_views: Vec<Arc<ImageView>>,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
+    frames_in_flight: VecDeque<FrameFence>,
     device: Arc<Device>,
     recreate_on_next_frame: bool,
     present_mode: PresentMode,
@@ -56,11 +64,17 @@ impl ManagedSwapchain {
             .unwrap_or(Format::B8G8R8A8_UNORM);
         let image_extent = window.inner_size().into();
 
+        let present_mode = physical
+            .surface_present_modes(&surface, Default::default())
+            .unwrap()
+            .into_iter()
+            .find(|&p| p == present_mode)
+            .unwrap_or(PresentMode::Fifo);
+
         let (swapchain, images) = Swapchain::new(
             device.clone(),
             surface,
             SwapchainCreateInfo {
-                min_image_count: surface_capabilities.min_image_count,
                 image_format,
                 image_extent,
                 image_usage: ImageUsage::COLOR_ATTACHMENT,
@@ -91,6 +105,7 @@ impl ManagedSwapchain {
             swap_chain: swapchain,
             image_views: images,
             previous_frame_end: Some(sync::now(device.clone()).boxed()),
+            frames_in_flight: VecDeque::new(),
             device,
             recreate_on_next_frame: false,
             present_mode,
@@ -109,6 +124,16 @@ impl ManagedSwapchain {
     }
 
     pub fn set_present_mode(&mut self, present_mode: PresentMode) {
+        let present_mode = self
+            .swap_chain
+            .device()
+            .physical_device()
+            .surface_present_modes(self.swap_chain.surface(), Default::default())
+            .unwrap()
+            .into_iter()
+            .find(|&p| p == present_mode)
+            .unwrap_or(PresentMode::Fifo);
+
         let prev = self.present_mode;
         self.present_mode = present_mode;
 
@@ -118,14 +143,18 @@ impl ManagedSwapchain {
     }
 
     pub fn recreate(&mut self) {
+        // Skip recreation if size is zero (e.g., window minimized)
+        if self.state.size[0] == 0 || self.state.size[1] == 0 {
+            return;
+        }
+
         let (new_swapchain, new_images) = match self.swap_chain.recreate(SwapchainCreateInfo {
             image_extent: self.state.size,
             present_mode: self.present_mode,
             ..self.swap_chain.create_info()
         }) {
             Ok(r) => r,
-            Err(Validated::Error { .. }) => return,
-            Err(e) => panic!("Failed to recreate swapchain: {e:?}"),
+            Err(_) => return,
         };
         self.swap_chain = new_swapchain;
         let new_images = new_images
@@ -137,10 +166,30 @@ impl ManagedSwapchain {
     }
 
     pub fn take_previous_frame_end(&mut self) -> Option<Box<dyn GpuFuture>> {
-        self.previous_frame_end.take()
+        // Waiting also releases the frame's resource locks, so they can be written again
+        while self.frames_in_flight.len() >= MAX_FRAMES_IN_FLIGHT {
+            let _ = self.frames_in_flight.pop_front().unwrap().wait(None);
+        }
+
+        if let Some(mut future) = self.previous_frame_end.take() {
+            future.cleanup_finished();
+            Some(future)
+        } else {
+            None
+        }
     }
 
-    pub fn acquire_frame(&'_ mut self) -> (SwapchainFrame<'_>, SwapchainAcquireFuture) {
+    /// Restore previous_frame_end when a frame is skipped (e.g., window minimized)
+    pub fn restore_previous_frame_end(&mut self, future: Box<dyn GpuFuture>) {
+        self.previous_frame_end = Some(future);
+    }
+
+    pub fn acquire_frame(&'_ mut self) -> Option<(SwapchainFrame<'_>, SwapchainAcquireFuture)> {
+        // Skip if size is zero (e.g., window minimized)
+        if self.state.size[0] == 0 || self.state.size[1] == 0 {
+            return None;
+        }
+
         if self.recreate_on_next_frame {
             self.recreate();
             self.recreate_on_next_frame = false;
@@ -150,23 +199,18 @@ impl ManagedSwapchain {
         loop {
             tries += 1;
             if tries > 10 {
-                panic!("Failed to acquire next image after 10 tries");
+                return None;
             }
 
             let next = vulkano::swapchain::acquire_next_image(self.swap_chain.clone(), None);
 
             let (image_num, suboptimal, acquire_future) = match next {
                 Ok(r) => r,
-                // TODO: Handle more errors, e.g. DeviceLost, by re-creating the entire graphics chain
-                Err(Validated::Error(e)) => {
-                    if e == VulkanError::OutOfDate {
-                        self.recreate();
-                        continue;
-                    } else {
-                        panic!("Failed to acquire next image: {e:?}");
-                    }
+                Err(Validated::Error(VulkanError::OutOfDate)) => {
+                    self.recreate();
+                    continue;
                 }
-                Err(e) => panic!("Unknown error: {e:?}"),
+                Err(_) => return None,
             };
 
             if suboptimal {
@@ -181,7 +225,7 @@ impl ManagedSwapchain {
                 managed_swap_chain: self,
             };
 
-            return (frame, acquire_future);
+            return Some((frame, acquire_future));
         }
     }
 }
@@ -210,25 +254,17 @@ impl<'a> SwapchainFrame<'a> {
 
         match future {
             Ok(future) => {
-                // FIXME: A hack to prevent OutOfMemory error on Nvidia
-                // https://github.com/vulkano-rs/vulkano/issues/627
-                match future.wait(None) {
-                    Ok(x) => x,
-                    Err(err) => println!("err: {err:?}"),
-                }
+                // Arc only because vulkano implements GpuFuture for Arc<FenceSignalFuture>
+                #[allow(clippy::arc_with_non_send_sync)]
+                let future = Arc::new(future);
+                sc.frames_in_flight.push_back(future.clone());
                 sc.previous_frame_end = Some(future.boxed());
             }
-            Err(Validated::Error(e)) => {
-                if e == VulkanError::OutOfDate {
-                    sc.recreate_on_next_frame = true;
-                    sc.previous_frame_end = Some(sync::now(sc.device.clone()).boxed());
-                } else {
-                    println!("Failed to flush future: {e:?}");
-                    sc.previous_frame_end = Some(sync::now(sc.device.clone()).boxed());
-                }
+            Err(Validated::Error(VulkanError::OutOfDate)) => {
+                sc.recreate_on_next_frame = true;
+                sc.previous_frame_end = Some(sync::now(sc.device.clone()).boxed());
             }
-            Err(e) => {
-                println!("Unknown error: {e:?}");
+            Err(_) => {
                 sc.previous_frame_end = Some(sync::now(sc.device.clone()).boxed());
             }
         }

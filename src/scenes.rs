@@ -6,7 +6,10 @@ use vulkano::{
     memory::allocator::StandardMemoryAllocator,
 };
 
-use crate::{gui::GuiState, renderer::swapchain::ImagesState};
+use crate::{
+    gui::GuiState,
+    renderer::swapchain::{ImagesState, MAX_FRAMES_IN_FLIGHT},
+};
 
 pub struct SceneImage {
     pub image: Arc<ImageView>,
@@ -18,6 +21,7 @@ pub struct SceneSwapchain {
     scene_images: Vec<SceneImage>,
     image_state: Option<ImagesState>,
     scene_view_size: [u32; 2],
+    frame: usize,
 }
 
 impl SceneSwapchain {
@@ -27,6 +31,7 @@ impl SceneSwapchain {
             scene_images: Vec::new(),
             image_state: None,
             scene_view_size: [0, 0],
+            frame: 0,
         }
     }
 
@@ -34,7 +39,6 @@ impl SceneSwapchain {
         let image_state = state.frame.swap_chain_state().images_state;
 
         if Some(image_state) != self.image_state || self.scene_view_size != size {
-            // Remove existing images
             for image in self.scene_images.drain(..) {
                 state.renderer.gui.unregister_user_image(image.id);
             }
@@ -47,8 +51,8 @@ impl SceneSwapchain {
                 ..Default::default()
             };
 
-            // Create new images
-            for _ in 0..image_state.count {
+            // One image per frame in flight: the image being rendered is never still in use
+            for _ in 0..MAX_FRAMES_IN_FLIGHT {
                 let image = ImageView::new_default(
                     Image::new(allocator.clone(), create_info.clone(), Default::default())
                         .expect("Failed to create scene image"),
@@ -67,6 +71,7 @@ impl SceneSwapchain {
             self.scene_view_size = size;
         }
 
-        &self.scene_images[state.frame.image_num as usize]
+        self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
+        &self.scene_images[self.frame]
     }
 }

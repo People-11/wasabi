@@ -10,7 +10,7 @@ use vulkano::{
         Queue, QueueCreateInfo, QueueFlags,
     },
     format::Format,
-    instance::{Instance, InstanceCreateInfo, InstanceExtensions},
+    instance::{Instance, InstanceCreateInfo},
     swapchain::Surface,
     sync::GpuFuture,
     Version, VulkanLibrary,
@@ -50,20 +50,13 @@ impl Renderer {
         settings: &mut WasabiSettings,
         state: &WasabiState,
     ) -> Self {
-        // Why
         let library = VulkanLibrary::new().unwrap();
 
-        // Add instance extensions based on needs
-        let instance_extensions = InstanceExtensions {
-            ..Surface::required_extensions(event_loop).unwrap()
-        };
-
-        // Create instance
         let instance = Instance::new(
             library,
             InstanceCreateInfo {
                 application_version: Version::V1_2,
-                enabled_extensions: instance_extensions,
+                enabled_extensions: Surface::required_extensions(event_loop).unwrap(),
                 ..Default::default()
             },
         )
@@ -74,7 +67,6 @@ impl Renderer {
         let surface = Surface::from_window(instance.clone(), window.clone())
             .expect("Failed to create surface");
 
-        // Get most performant physical device (device with most memory)
         let device_extensions = DeviceExtensions {
             khr_swapchain: true,
             ..DeviceExtensions::empty()
@@ -114,7 +106,6 @@ impl Renderer {
             physical_device.properties().device_type,
         );
 
-        // Create device
         let (device, mut queues) = Device::new(
             physical_device.clone(),
             DeviceCreateInfo {
@@ -129,30 +120,16 @@ impl Renderer {
         )
         .unwrap();
 
-        // Create swap chain & frame(s) to which we'll render
         let swap_chain = ManagedSwapchain::create(
             surface.clone(),
             window.clone(),
             physical_device,
             device.clone(),
-            #[cfg(target_os = "linux")]
-            if matches!(
-                event_loop.display_handle().unwrap().as_raw(),
-                RawDisplayHandle::Wayland(..)
-            ) {
-                println!("Present Mode: {:?}", crate::WAYLAND_PRESENT_MODE);
-                crate::WAYLAND_PRESENT_MODE
-            } else {
-                println!("Present Mode: {:?}", crate::PRESENT_MODE);
-                crate::PRESENT_MODE
-            },
-            #[cfg(not(target_os = "linux"))]
             crate::PRESENT_MODE,
         );
 
         let queue = queues.next().unwrap();
 
-        // Vulkano & Winit & egui integration
         let mut gui = Gui::new(
             event_loop,
             surface.clone(),
@@ -184,11 +161,11 @@ impl Renderer {
         }
     }
 
-    pub fn queue(&self) -> Arc<Queue> {
+    fn queue(&self) -> Arc<Queue> {
         self.queue.clone()
     }
 
-    pub fn device(&self) -> Arc<Device> {
+    fn device(&self) -> Arc<Device> {
         self.device.clone()
     }
 
@@ -196,7 +173,7 @@ impl Renderer {
         self.window.clone()
     }
 
-    pub fn format(&self) -> Format {
+    fn format(&self) -> Format {
         self.swap_chain.state().images_state.format
     }
 
@@ -207,12 +184,6 @@ impl Renderer {
     pub fn set_vsync(&mut self, enable_vsync: bool) {
         if enable_vsync {
             self.swap_chain.set_present_mode(crate::VSYNC_PRESENT_MODE);
-        } else if matches!(
-            self.window.display_handle().unwrap().as_raw(),
-            RawDisplayHandle::Wayland(..)
-        ) {
-            self.swap_chain
-                .set_present_mode(crate::WAYLAND_PRESENT_MODE);
         } else {
             self.swap_chain.set_present_mode(crate::PRESENT_MODE);
         }
@@ -247,13 +218,19 @@ impl Renderer {
         let queue = self.queue();
         let format = self.format();
 
-        // Get the previous frame before starting a new one
-        let previous_frame_future = self.swap_chain.take_previous_frame_end().unwrap();
+        // Get the previous frame first (before acquiring new frame which holds &mut swap_chain)
+        let Some(previous_frame_future) = self.swap_chain.take_previous_frame_end() else {
+            return;
+        };
 
-        // Start a new frame
-        let (frame, acquire_future) = self.swap_chain.acquire_frame();
+        // Start a new frame (returns None if window size is zero, e.g., minimized)
+        let Some((frame, acquire_future)) = self.swap_chain.acquire_frame() else {
+            // Restore previous_frame_end since we're not rendering this frame
+            self.swap_chain
+                .restore_previous_frame_end(previous_frame_future);
+            return;
+        };
 
-        // Join the futures
         let future = previous_frame_future.join(acquire_future);
 
         self.gui.immediate_ui(|gui| {
@@ -272,12 +249,10 @@ impl Renderer {
             self.gui_window.layout(&mut gui_state, settings, state);
         });
 
-        // Render the layouts
         let after_future = self
             .gui
             .draw_on_image(Box::new(future), frame.image.clone());
 
-        // Finish render
         frame.present(&self.queue, after_future);
     }
 }
