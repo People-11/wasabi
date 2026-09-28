@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 egui = { version = "0.31.0", features = ["serde"] }
-egui_extras = { version = "0.31.0", features = ["svg"] }
+egui_extras = "0.31.0"
 egui-winit = "0.31.0"
 egui_winit_vulkano = "0.28.0"
 winit = { version = "0.30.12", default-features = false }

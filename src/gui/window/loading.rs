@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use egui::Context;
 
-use crate::utils;
+use crate::{gui::icons::icons, utils};
 
 #[derive(Default, Clone)]
 struct StatusInfoHolder {
@@ -66,7 +66,7 @@ impl LoadingStatus {
                     ui.horizontal(|ui| {
                         let rotation = ui.input(|i| i.time) as f32;
                         ui.add(
-                            egui::Image::new(egui::include_image!("../../../assets/logo.svg"))
+                            egui::Image::from_texture(icons().logo)
                                 .rotate(rotation, egui::Vec2::splat(0.5))
                                 .fit_to_exact_size([56.0, 56.0].into()),
                         );

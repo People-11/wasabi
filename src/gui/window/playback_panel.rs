@@ -2,9 +2,10 @@ use super::GuiWasabiWindow;
 
 use time::Duration;
 
-use egui::{popup_below_widget, PopupCloseBehavior};
+use egui::{load::SizedTexture, popup_below_widget, PopupCloseBehavior};
 
 use crate::{
+    gui::icons::icons,
     midi::MIDIFileBase,
     settings::WasabiSettings,
     state::WasabiState,
@@ -26,9 +27,9 @@ impl GuiWasabiWindow {
             .is_some_and(|mouse| mouse.y < MAX_PANEL_HEIGHT);
         let button_size = egui::Vec2::new(26.0, 26.0);
         let icon_color = ctx.style().visuals.strong_text_color();
-        let icon_button = |source: egui::ImageSource<'static>| {
+        let icon_button = |icon: SizedTexture| {
             egui::ImageButton::new(
-                egui::Image::new(source)
+                egui::Image::from_texture(icon)
                     .fit_to_exact_size(button_size)
                     .tint(icon_color)
                     .corner_radius(8.0),
@@ -66,7 +67,7 @@ impl GuiWasabiWindow {
 
                 ui.horizontal(|ui| {
                     if ui
-                        .add(icon_button(egui::include_image!("../../../assets/folder.svg")))
+                        .add(icon_button(icons().folder))
                         .on_hover_text("Open MIDI")
                         .clicked()
                     {
@@ -74,7 +75,7 @@ impl GuiWasabiWindow {
                     }
 
                     if ui
-                        .add(icon_button(egui::include_image!("../../../assets/stop.svg")))
+                        .add(icon_button(icons().stop))
                         .on_hover_text("Unload")
                         .clicked()
                     {
@@ -89,9 +90,9 @@ impl GuiWasabiWindow {
                         .as_ref()
                         .is_some_and(|midi| !midi.timer().is_paused());
                     let (play_pause_img, play_pause_text) = if playing {
-                        (egui::include_image!("../../../assets/pause.svg"), "Pause")
+                        (icons().pause, "Pause")
                     } else {
-                        (egui::include_image!("../../../assets/play.svg"), "Play")
+                        (icons().play, "Play")
                     };
                     if ui
                         .add(icon_button(play_pause_img))
@@ -182,7 +183,7 @@ impl GuiWasabiWindow {
                     ui.add_space(SPACE);
 
                     let options =
-                        ui.add(icon_button(egui::include_image!("../../../assets/options.svg")));
+                        ui.add(icon_button(icons().options));
 
                     if options.clicked() {
                         ui.memory_mut(|mem| mem.toggle_popup(state.panel_popup_id));
@@ -215,7 +216,7 @@ impl GuiWasabiWindow {
 
                     if ui
                         .add(
-                            icon_button(egui::include_image!("../../../assets/pin.svg"))
+                            icon_button(icons().pin)
                                 .selected(state.panel_pinned),
                         )
                         .on_hover_text("Pin Panel")
