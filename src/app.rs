@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const ICON: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icon.bitmap"));
+const ICON: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icon_256.bitmap"));
 
 /// The main thread only pumps winit messages and forwards window events to the
 /// render thread, so modal loops (dragging/resizing) and message floods can't stall frames.
@@ -49,7 +49,7 @@ impl ApplicationHandler for WasabiApplication {
         let Some((mut settings, state)) = self.init.take() else { return };
 
         let win_attr = WindowAttributes::default()
-            .with_window_icon(Some(Icon::from_rgba(ICON.to_vec(), 16, 16).unwrap()))
+            .with_window_icon(Some(Icon::from_rgba(ICON.to_vec(), 256, 256).unwrap()))
             .with_inner_size(crate::WINDOW_SIZE)
             .with_title("Wasabi");
         let window = event_loop.create_window(win_attr).unwrap();
