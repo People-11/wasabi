@@ -1,5 +1,5 @@
 mod cake_system;
-mod note_list_system;
+pub mod note_list_system;
 pub mod pie_system;
 
 use egui::{Image, Ui};
@@ -23,7 +23,11 @@ enum CurrentRenderer {
 impl CurrentRenderer {
     fn get_note_renderer(&mut self, renderer: &GuiRenderer) -> &mut NoteRenderer {
         if !matches!(self, CurrentRenderer::Note(_)) {
-            *self = CurrentRenderer::Note(NoteRenderer::new(renderer));
+            *self = CurrentRenderer::Note(NoteRenderer::new(
+                renderer.device.clone(),
+                renderer.queue.clone(),
+                renderer.format,
+            ));
         }
         match self {
             CurrentRenderer::Note(renderer) => renderer,
@@ -93,12 +97,12 @@ impl GuiRenderScene {
             MIDIFileUnion::InRam(file) => self
                 .draw_system
                 .get_note_renderer(state.renderer)
-                .draw(key_view, frame, file, view_range),
+                .draw(key_view, frame, file, view_range, None, None),
 
             MIDIFileUnion::Live(file) => self
                 .draw_system
                 .get_note_renderer(state.renderer)
-                .draw(key_view, frame, file, view_range),
+                .draw(key_view, frame, file, view_range, None, None),
 
             MIDIFileUnion::Cake(file) => self
                 .draw_system

@@ -34,7 +34,7 @@ use vulkano::{
     sync::{self, future::FenceSignalFuture, GpuFuture},
 };
 
-use crate::gui::{window::keyboard_layout::KeyboardView, GuiRenderer};
+use crate::gui::window::keyboard_layout::KeyboardView;
 
 const NOTE_BUFFER_SIZE: u64 = 25000000;
 
@@ -127,17 +127,17 @@ pub struct NoteRenderPass {
 }
 
 impl NoteRenderPass {
-    pub fn new(renderer: &GuiRenderer) -> NoteRenderPass {
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>, format: Format) -> NoteRenderPass {
         let allocator = Arc::new(StandardMemoryAllocator::new_default(
-            renderer.device.clone(),
+            device.clone(),
         ));
 
-        let gfx_queue = renderer.queue.clone();
+        let gfx_queue = queue;
 
         let render_pass_clear = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
             attachments: {
                 final_color: {
-                    format: renderer.format,
+                    format: format,
                     samples: 1,
                     load_op: Clear,
                     store_op: Store,
@@ -162,7 +162,7 @@ impl NoteRenderPass {
         let render_pass_draw_over = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
             attachments: {
                 final_color: {
-                    format: renderer.format,
+                    format: format,
                     samples: 1,
                     load_op: DontCare,
                     store_op: Store,
@@ -233,9 +233,9 @@ impl NoteRenderPass {
             PipelineShaderStageCreateInfo::new(gs),
         ];
         let layout = PipelineLayout::new(
-            renderer.device.clone(),
+            device.clone(),
             PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
-                .into_pipeline_layout_create_info(renderer.device.clone())
+                .into_pipeline_layout_create_info(device.clone())
                 .unwrap(),
         )
         .unwrap();
@@ -265,17 +265,17 @@ impl NoteRenderPass {
         };
 
         let pipeline_clear =
-            GraphicsPipeline::new(renderer.device.clone(), None, create_info.clone()).unwrap();
+            GraphicsPipeline::new(device.clone(), None, create_info.clone()).unwrap();
 
         create_info.subpass = Some(PipelineSubpassType::BeginRenderPass(
             Subpass::from(render_pass_draw_over.clone(), 0).unwrap(),
         ));
         let pipeline_draw_over =
-            GraphicsPipeline::new(renderer.device.clone(), None, create_info).unwrap();
+            GraphicsPipeline::new(device.clone(), None, create_info).unwrap();
 
         NoteRenderPass {
             gfx_queue,
-            buffer_set: BufferSet::new(&renderer.device),
+            buffer_set: BufferSet::new(&device),
             pipeline_clear,
             pipeline_draw_over,
             render_pass_clear,
@@ -284,12 +284,12 @@ impl NoteRenderPass {
             key_locations,
             allocator,
             cb_allocator: StandardCommandBufferAllocator::new(
-                renderer.device.clone(),
+                device.clone(),
                 Default::default(),
             )
             .into(),
             sd_allocator: StandardDescriptorSetAllocator::new(
-                renderer.device.clone(),
+                device.clone(),
                 Default::default(),
             )
             .into(),
@@ -301,6 +301,8 @@ impl NoteRenderPass {
         final_image: Arc<ImageView>,
         key_view: &KeyboardView,
         view_range: f32,
+        bg_color: Option<[f32; 4]>,
+        viewport: Option<Viewport>,
         mut fill_buffer: impl FnMut(&Subbuffer<[NoteVertex]>) -> NotePassStatus,
     ) {
         let img_dims = final_image.image().extent();
@@ -361,7 +363,7 @@ impl NoteRenderPass {
             let (clears, pipeline, render_pass) = if first_pass {
                 first_pass = false;
                 (
-                    vec![Some([0.0, 0.0, 0.0, 0.0].into()), Some(1.0f32.into())],
+                    vec![Some(bg_color.unwrap_or([0.0; 4]).into()), Some(1.0f32.into())],
                     &self.pipeline_clear,
                     &self.render_pass_clear,
                 )
@@ -421,11 +423,11 @@ impl NoteRenderPass {
                     .unwrap()
                     .set_viewport(
                         0,
-                        vec![Viewport {
+                        vec![viewport.clone().unwrap_or(Viewport {
                             offset: [0.0, 0.0],
                             extent: [img_dims[0] as f32, img_dims[1] as f32],
                             depth_range: 0.0..=1.0,
-                        }]
+                        })]
                         .into(),
                     )
                     .unwrap()

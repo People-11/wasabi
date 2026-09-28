@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, time::Instant};
+use std::{collections::VecDeque, sync::OnceLock, time::Instant};
 
 use egui::{Context, Frame, Pos2};
 use numfmt::{Formatter, Precision};
@@ -10,36 +10,116 @@ use crate::{
     utils::convert_seconds_to_time_string,
 };
 
+#[derive(Clone, Default)]
 pub struct GuiMidiStats {
-    time_passed: f64,
-    time_total: f64,
-    notes_on_screen: u64,
-    polyphony: Option<u64>,
-    voice_count: Option<u64>,
+    pub time_passed: f64,
+    pub time_total: f64,
+    pub notes_on_screen: u64,
+    pub polyphony: Option<u64>,
+    pub voice_count: Option<u64>,
+    pub fps: u32,
+    pub nps: u64,
+    pub note_stats: MIDIFileStats,
 }
 
-impl GuiMidiStats {
-    pub fn empty() -> GuiMidiStats {
-        GuiMidiStats {
-            time_passed: 0.0,
-            time_total: 0.0,
-            notes_on_screen: 0,
-            polyphony: None,
-            voice_count: None,
-        }
+pub fn draw_stats_panel(
+    ctx: &Context,
+    pos: Pos2,
+    stats: &GuiMidiStats,
+    settings: &WasabiSettings,
+    is_video_render: bool,
+) {
+    let opacity = settings.scene.statistics.opacity.clamp(0.0, 1.0);
+    let alpha = (u8::MAX as f32 * opacity).round() as u8;
+
+    let round = 8;
+
+    let mut stats_frame = Frame::default()
+        .inner_margin(egui::Margin::same(7))
+        .fill(egui::Color32::from_black_alpha(alpha));
+
+    if settings.scene.statistics.floating {
+        stats_frame = stats_frame.corner_radius(egui::CornerRadius::same(round));
+    } else {
+        stats_frame = stats_frame.corner_radius(egui::CornerRadius {
+            ne: 0,
+            nw: 0,
+            sw: 0,
+            se: round,
+        });
     }
 
-    pub fn set_voice_count(&mut self, voices: Option<u64>) {
-        self.voice_count = voices;
+    if settings.scene.statistics.border {
+        stats_frame =
+            stats_frame.stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 50, 50)));
     }
 
-    pub fn set_rendered_note_count(&mut self, notes: u64) {
-        self.notes_on_screen = notes;
-    }
+    egui::Window::new("Stats")
+        .resizable(false)
+        .collapsible(false)
+        .title_bar(false)
+        .scroll([false, false])
+        .interactable(false)
+        .frame(stats_frame)
+        .fixed_pos(pos)
+        .fixed_size(egui::Vec2::new(200.0, 128.0))
+        .show(ctx, |ui| {
+            ui.spacing_mut().interact_size.y = 16.0;
 
-    pub fn set_polyphony(&mut self, polyphony: Option<u64>) {
-        self.polyphony = polyphony;
-    }
+            let mut f = Formatter::new()
+                .separator(',')
+                .unwrap()
+                .precision(Precision::Decimals(0));
+            let mut num = |n: u64| f.fmt2(n).to_string();
+
+            for (stat, _) in settings.scene.statistics.order.iter().filter(|i| i.1) {
+                match stat {
+                    Statistics::Time => stat_row(
+                        ui,
+                        "Time:",
+                        format!(
+                            "{} / {}",
+                            convert_seconds_to_time_string(stats.time_passed),
+                            convert_seconds_to_time_string(stats.time_total)
+                        ),
+                    ),
+                    // FPS and voice count mean nothing in a rendered video
+                    Statistics::Fps if !is_video_render => {
+                        stat_row(ui, "FPS:", num(stats.fps as u64))
+                    }
+                    Statistics::VoiceCount if !is_video_render => {
+                        if let Some(voice_count) = stats.voice_count {
+                            stat_row(ui, "Voice Count:", num(voice_count));
+                        }
+                    }
+                    Statistics::Rendered => stat_row(ui, "Rendered:", num(stats.notes_on_screen)),
+                    Statistics::NoteCount => {
+                        let passed = stats.note_stats.passed_notes.map_or("-".into(), &mut num);
+                        let total = stats.note_stats.total_notes.map_or("-".into(), &mut num);
+                        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                            ui.monospace(format!("{passed} / {total}"));
+                        });
+                    }
+                    Statistics::Nps => stat_row(ui, "NPS:", num(stats.nps)),
+                    Statistics::Polyphony => {
+                        if let Some(poly) = stats.polyphony {
+                            stat_row(ui, "Polyphony:", num(poly));
+                        }
+                    }
+                    Statistics::Fps | Statistics::VoiceCount => {}
+                }
+            }
+        });
+}
+
+/// A "label ... value" line of the statistics panel
+fn stat_row(ui: &mut egui::Ui, label: &str, value: String) {
+    ui.horizontal(|ui| {
+        ui.monospace(label);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.monospace(value);
+        });
+    });
 }
 
 impl GuiWasabiWindow {
@@ -49,175 +129,52 @@ impl GuiWasabiWindow {
         pos: Pos2,
         mut stats: GuiMidiStats,
         settings: &WasabiSettings,
+        is_video_render: bool,
     ) {
-        // Prepare frame based on settings
-        let opacity = settings.scene.statistics.opacity.clamp(0.0, 1.0);
-        let alpha = (u8::MAX as f32 * opacity).round() as u8;
+        if let Some(midi_file) = self.midi_file.as_mut() {
+            stats.time_total = midi_file.midi_length().unwrap_or(0.0);
+            let time = midi_file.timer().get_time().as_seconds_f64();
 
-        let round = 8;
+            if time > stats.time_total {
+                stats.time_passed = stats.time_total;
+            } else {
+                stats.time_passed = time;
+            }
 
-        let mut stats_frame = Frame::default()
-            .inner_margin(egui::Margin::same(7))
-            .fill(egui::Color32::from_black_alpha(alpha));
-
-        if settings.scene.statistics.floating {
-            stats_frame = stats_frame.corner_radius(egui::CornerRadius::same(round));
-        } else {
-            stats_frame = stats_frame.corner_radius(egui::CornerRadius {
-                ne: 0,
-                nw: 0,
-                sw: 0,
-                se: round,
-            });
+            stats.note_stats = midi_file.stats();
         }
 
-        if settings.scene.statistics.border {
-            stats_frame =
-                stats_frame.stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 50, 50)));
-        }
+        self.nps.tick(stats.note_stats.passed_notes.unwrap_or(0) as i64);
+        stats.nps = self.nps.read();
 
-        // Render statistics in a window
-        egui::Window::new("Stats")
-            .resizable(false)
-            .collapsible(false)
-            .title_bar(false)
-            .scroll([false, false])
-            .interactable(false)
-            .frame(stats_frame)
-            .fixed_pos(pos)
-            .fixed_size(egui::Vec2::new(200.0, 128.0))
-            .show(ctx, |ui| {
-                ui.spacing_mut().interact_size.y = 16.0;
+        stats.fps = self.fps.get_fps() as u32;
 
-                let mut f = Formatter::new()
-                    .separator(',')
-                    .unwrap()
-                    .precision(Precision::Decimals(0));
-
-                let mut note_stats = MIDIFileStats::default();
-                if let Some(midi_file) = self.midi_file.as_mut() {
-                    stats.time_total = midi_file.midi_length().unwrap_or(0.0);
-                    let time = midi_file.timer().get_time().as_seconds_f64();
-
-                    if time > stats.time_total {
-                        stats.time_passed = stats.time_total;
-                    } else {
-                        stats.time_passed = time;
-                    }
-
-                    note_stats = midi_file.stats();
-                }
-
-                for i in settings.scene.statistics.order.iter().filter(|i| i.1) {
-                    match i.0 {
-                        Statistics::Time => {
-                            ui.horizontal(|ui| {
-                                ui.monospace("Time:");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.monospace(format!(
-                                            "{} / {}",
-                                            convert_seconds_to_time_string(stats.time_passed),
-                                            convert_seconds_to_time_string(stats.time_total)
-                                        ));
-                                    },
-                                );
-                            });
-                        }
-                        Statistics::Fps => {
-                            ui.horizontal(|ui| {
-                                ui.monospace("FPS:");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.monospace(f.fmt2(self.fps.get_fps()).to_string());
-                                    },
-                                );
-                            });
-                        }
-                        Statistics::VoiceCount => {
-                            if let Some(voice_count) = stats.voice_count {
-                                ui.horizontal(|ui| {
-                                    ui.monospace("Voice Count:");
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            ui.monospace(f.fmt2(voice_count).to_string());
-                                        },
-                                    );
-                                });
-                            }
-                        }
-                        Statistics::Rendered => {
-                            ui.horizontal(|ui| {
-                                ui.monospace("Rendered:");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.monospace(f.fmt2(stats.notes_on_screen).to_string());
-                                    },
-                                );
-                            });
-                        }
-                        Statistics::NoteCount => {
-                            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                                ui.monospace(format!(
-                                    "{} / {}",
-                                    note_stats
-                                        .passed_notes
-                                        .map(|n| f.fmt2(n).to_string())
-                                        .unwrap_or_else(|| "-".to_string()),
-                                    note_stats
-                                        .total_notes
-                                        .map(|n| f.fmt2(n).to_string())
-                                        .unwrap_or_else(|| "-".to_string())
-                                ));
-                            });
-                        }
-                        Statistics::Nps => {
-                            ui.horizontal(|ui| {
-                                ui.monospace("NPS:");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        self.nps.tick(note_stats.passed_notes.unwrap_or(0) as i64);
-                                        ui.monospace(f.fmt2(self.nps.read()).to_string());
-                                    },
-                                );
-                            });
-                        }
-                        Statistics::Polyphony => {
-                            if let Some(poly) = stats.polyphony {
-                                ui.horizontal(|ui| {
-                                    ui.monospace("Polyphony:");
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            ui.monospace(f.fmt2(poly).to_string());
-                                        },
-                                    );
-                                });
-                            }
-                        }
-                    };
-                }
-            });
+        draw_stats_panel(ctx, pos, &stats, settings, is_video_render);
     }
 }
 
 #[derive(Default)]
 pub struct NpsCounter {
-    ticks: VecDeque<(Instant, i64)>,
+    /// (time in seconds, notes passed)
+    ticks: VecDeque<(f64, i64)>,
 }
 
 impl NpsCounter {
     const NPS_WINDOW: f64 = 0.5;
 
+    /// Samples at wall-clock time, for live playback
     pub fn tick(&mut self, passed: i64) {
-        self.ticks.push_back((Instant::now(), passed));
-        while let Some((front_time, _passed)) = self.ticks.front() {
-            if front_time.elapsed().as_secs_f64() > Self::NPS_WINDOW {
+        static EPOCH: OnceLock<Instant> = OnceLock::new();
+        let now = EPOCH.get_or_init(Instant::now).elapsed().as_secs_f64();
+        self.tick_at(now, passed);
+    }
+
+    /// Samples at an explicit time. Video export passes the playback time, since its
+    /// frames are rendered at whatever speed the machine manages, not in real time.
+    pub fn tick_at(&mut self, time: f64, passed: i64) {
+        self.ticks.push_back((time, passed));
+        while let Some(&(front_time, _)) = self.ticks.front() {
+            if time - front_time > Self::NPS_WINDOW {
                 self.ticks.pop_front();
             } else {
                 break;
@@ -225,19 +182,10 @@ impl NpsCounter {
         }
     }
 
-    pub fn read(&self) -> u32 {
-        let old = if let Some((_time, front_passed)) = self.ticks.front() {
-            *front_passed as f64
-        } else {
-            0.0
-        };
+    pub fn read(&self) -> u64 {
+        let old = self.ticks.front().map_or(0.0, |(_, passed)| *passed as f64);
+        let last = self.ticks.back().map_or(0.0, |(_, passed)| *passed as f64);
 
-        let last = if let Some((_time, back_passed)) = self.ticks.back() {
-            *back_passed as f64
-        } else {
-            0.0
-        };
-
-        ((last - old).max(0.0) / Self::NPS_WINDOW).round() as u32
+        ((last - old).max(0.0) / Self::NPS_WINDOW).round() as u64
     }
 }

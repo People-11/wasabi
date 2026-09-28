@@ -34,7 +34,8 @@ impl SettingsWindow {
                   \0    The fastest mode, based on Cake. The note trees are\n\
                   \0    kept only in GPU memory once loaded, so it uses much\n\
                   \0    less RAM and renders at a higher FPS than Cake.\n\
-                  \0    This mode does not support polyphony statistics.\n\
+                  \0    Also available for video rendering. This mode does\n\
+                  \0    not support polyphony statistics.\n\
                     - Cake\n\
                   \0    The notes will be stored in binary trees and will be\n\
                   \0    displayed dynamically. This mode does not support\n\
