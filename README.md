@@ -29,13 +29,44 @@ You can build Wasabi yourself by following these steps:
 
 - Clone the repository using `git clone https://github.com/BlackMIDIDevs/wasabi.git` (or [download as a ZIP from GitHub](https://github.com/BlackMIDIDevs/wasabi/archive/refs/heads/master.zip))
 - Required tools:
-    - [Rust toolchain](https://rustup.rs/)
-    - [Vulkan SDK](https://vulkan.lunarg.com/)
-    - [CMake **3.X**](https://cmake.org/)
-    - [Ninja](https://ninja-build.org/)
-    - (C++ build tools for-)[Visual Studio 17+](https://visualstudio.microsoft.com/) (Windows only)
+  - [Rust toolchain](https://rustup.rs/)
+  - [Vulkan SDK](https://vulkan.lunarg.com/)
+  - [CMake **3.X**](https://cmake.org/)
+  - [Ninja](https://ninja-build.org/)
+  - (C++ build tools for-)[Visual Studio 17+](https://visualstudio.microsoft.com/) (Windows only)
 - Inside the project directory run the following command to build Wasabi: `cargo build --release`
-    - Optionally you can add `RUSTFLAGS="-C target-cpu=native"` to your environment before compiling to optimize XSynth for your specific CPU
+  - Optionally you can add `RUSTFLAGS="-C target-cpu=native"` to your environment before compiling to optimize XSynth for your specific CPU
+- After the compilation is finished, you will find the binary under `./target/release`
+
+### Option C *(MSYS2, no MSVC required)*
+
+If you prefer to build without MSVC or the Vulkan SDK, you can use [MSYS2](https://www.msys2.org/) with the MinGW-w64 toolchain instead.
+
+1. Install MSYS2 and open the **MINGW64** shell.
+2. Install the required packages:
+   
+   ```bash
+   pacman -S mingw-w64-x86_64-rust \
+             mingw-w64-x86_64-gcc \
+             mingw-w64-x86_64-cmake \
+             mingw-w64-x86_64-ninja \
+             mingw-w64-x86_64-shaderc \
+             mingw-w64-x86_64-pkgconf \
+             make
+   ```
+3. Create a `make` alias (only needed if `make` is not found):
+   
+   ```bash
+   ln -s /mingw64/bin/mingw32-make.exe /mingw64/bin/make.exe
+   ```
+4. Clone the repository and build using the provided Makefile:
+   
+   ```bash
+   git clone https://github.com/BlackMIDIDevs/wasabi.git
+   cd wasabi
+   make release
+   ```
+
 - After the compilation is finished, you will find the binary under `./target/release`
 
 ## Usage
@@ -49,4 +80,5 @@ You can build Wasabi yourself by following these steps:
 <p align="center"><img src="/assets/screenshot.png"/></p>
 
 ## License
+
 Wasabi is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html#license-text).
