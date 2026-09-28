@@ -112,6 +112,30 @@ impl MIDIColor {
             .collect()
     }
 
+    pub fn new_white_vec(tracks: usize) -> Vec<Self> {
+        vec![MIDIColor::new(255, 255, 255); tracks * 16]
+    }
+
+    pub fn new_pfa_vec(tracks: usize) -> Vec<Self> {
+        // PFA's default palette is HSV(360 * i / 16 in integer degrees, 80%, 100%), drawn with
+        // a linear Primary -> Dark (half value) gradient blended in sRGB. Our note shader shades
+        // differently (cosine falloff, squared then sRGB-encoded), so the saturation and value
+        // here are solved for the notes' average on-screen color to match PFA's.
+        let mut base_colors: [MIDIColor; 16] = std::array::from_fn(|count| {
+            let i = (10 + count * 7) % 16;
+            let hue = (360 * i / 16) as f64;
+            let hsv: Hsv<Srgb, f64> = palette::Hsv::new(hue, 0.806, 0.886);
+            let rgb = palette::rgb::Rgb::from_color_unclamped(hsv);
+            Self::new(
+                (rgb.red * 255.0).round() as u8,
+                (rgb.green * 255.0).round() as u8,
+                (rgb.blue * 255.0).round() as u8,
+            )
+        });
+        base_colors.swap(2, 4);
+        base_colors.into_iter().cycle().take(tracks * 16).collect()
+    }
+
     pub fn new_vec_from_palette(tracks: usize, image: DynamicImage, randomize: bool) -> Vec<Self> {
         let image = image.to_rgb8();
         let all_colors = image.pixels().map(|p| Self::new(p.0[0], p.0[1], p.0[2]));
@@ -137,6 +161,8 @@ impl MIDIColor {
         match settings.colors {
             Colors::Rainbow => Ok(MIDIColor::new_vec(tracks)),
             Colors::Random => Ok(MIDIColor::new_random_vec(tracks)),
+            Colors::White => Ok(MIDIColor::new_white_vec(tracks)),
+            Colors::PianoFromAbove => Ok(MIDIColor::new_pfa_vec(tracks)),
             Colors::Palette => {
                 let path = &settings.palette_path;
                 if path.exists() {

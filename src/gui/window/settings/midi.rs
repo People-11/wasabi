@@ -127,6 +127,32 @@ impl SettingsWindow {
                                 }
                             });
                         });
+                        body.row(row_height, |mut row| {
+                            row.col(|ui| {
+                                if ui
+                                    .selectable_label(
+                                        settings.midi.colors == Colors::White,
+                                        Colors::White.as_str(),
+                                    )
+                                    .clicked()
+                                {
+                                    settings.midi.colors = Colors::White;
+                                }
+                            });
+                        });
+                        body.row(row_height, |mut row| {
+                            row.col(|ui| {
+                                if ui
+                                    .selectable_label(
+                                        settings.midi.colors == Colors::PianoFromAbove,
+                                        Colors::PianoFromAbove.as_str(),
+                                    )
+                                    .clicked()
+                                {
+                                    settings.midi.colors = Colors::PianoFromAbove;
+                                }
+                            });
+                        });
                         let mut temp = self.palettes.clone();
                         for i in temp.iter_mut() {
                             i.selected = false;
