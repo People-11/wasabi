@@ -1,4 +1,4 @@
-use crate::{renderer::Renderer, settings::WasabiSettings, state::WasabiState, utils};
+use crate::{renderer::Renderer, settings::WasabiSettings, state::WasabiState};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use egui_winit::winit::event::WindowEvent;
 use winit::{
@@ -34,10 +34,6 @@ impl WasabiApplication {
         settings
             .save_to_file()
             .unwrap_or_else(|e| state.errors.error(&e));
-
-        if settings.gui.check_for_updates {
-            utils::check_for_updates(&state);
-        }
 
         Self {
             proxy,

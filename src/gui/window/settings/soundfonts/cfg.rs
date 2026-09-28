@@ -83,12 +83,10 @@ pub fn show_sf_config(ctx: &Context, item: &mut SFListItem) {
                 .spacing(super::super::SPACING)
                 .striped(true)
                 .show(ui, |ui| {
-                    // Effects option
                     ui.label("Apply DSP (cutoff filter etc.):");
                     ui.checkbox(&mut item.item.options.use_effects, "");
                     ui.end_row();
 
-                    // Interpolation option
                     ui.label("Interpolation Algorithm:");
                     egui::ComboBox::from_id_salt("interpolation_select")
                         .selected_text(format!("{:?}", item.item.options.interpolator))

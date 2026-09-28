@@ -8,8 +8,6 @@ impl GuiWasabiWindow {
         let frame = utils::create_window_frame(ctx);
         let size = [600.0, 460.0];
 
-        let mut updcheck = false;
-
         egui::Window::new("About Wasabi")
             .resizable(true)
             .collapsible(false)
@@ -110,29 +108,11 @@ impl GuiWasabiWindow {
                         ui.end_row();
                     });
 
+                let button_font = egui::TextStyle::Button.resolve(&ctx.style());
                 let gh_text = "\u{1F310} GitHub";
                 let gh_galley = ui.painter().layout_no_wrap(
                     gh_text.to_owned(),
-                    ctx.style()
-                        .text_styles
-                        .iter()
-                        .find(|v| v.0 == &egui::TextStyle::Button)
-                        .unwrap()
-                        .1
-                        .clone(),
-                    egui::Color32::WHITE,
-                );
-
-                let upd_text = "\u{1F310} Check for updates";
-                let upd_galley = ui.painter().layout_no_wrap(
-                    upd_text.to_owned(),
-                    ctx.style()
-                        .text_styles
-                        .iter()
-                        .find(|v| v.0 == &egui::TextStyle::Button)
-                        .unwrap()
-                        .1
-                        .clone(),
+                    button_font,
                     egui::Color32::WHITE,
                 );
 
@@ -145,9 +125,7 @@ impl GuiWasabiWindow {
                 ui.horizontal(|ui| {
                     let w = ui.available_width();
 
-                    let button_width = gh_galley.size().x
-                        + upd_galley.size().x
-                        + ui.spacing().button_padding.x * 4.0;
+                    let button_width = gh_galley.size().x + ui.spacing().button_padding.x * 2.0;
                     let w = w / 2.0 - button_width / 2.0;
                     ui.add_space(w);
 
@@ -156,14 +134,7 @@ impl GuiWasabiWindow {
                             state.errors.error(&WasabiError::Other(e.to_string()))
                         });
                     }
-                    if ui.button(upd_text).clicked() {
-                        updcheck = true;
-                    }
                 });
             });
-
-        if updcheck {
-            crate::utils::check_for_updates(state);
-        }
     }
 }

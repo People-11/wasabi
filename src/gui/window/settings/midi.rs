@@ -52,26 +52,14 @@ impl SettingsWindow {
                 egui::ComboBox::from_id_salt("midi_parsing_select")
                     .selected_text(settings.midi.parsing.as_str())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut settings.midi.parsing,
+                        for parsing in [
                             MidiParsing::Cake,
-                            MidiParsing::Cake.as_str(),
-                        );
-                        ui.selectable_value(
-                            &mut settings.midi.parsing,
                             MidiParsing::Pie,
-                            MidiParsing::Pie.as_str(),
-                        );
-                        ui.selectable_value(
-                            &mut settings.midi.parsing,
                             MidiParsing::Ram,
-                            MidiParsing::Ram.as_str(),
-                        );
-                        ui.selectable_value(
-                            &mut settings.midi.parsing,
                             MidiParsing::Live,
-                            MidiParsing::Live.as_str(),
-                        );
+                        ] {
+                            ui.selectable_value(&mut settings.midi.parsing, parsing, parsing.as_str());
+                        }
                     });
                 ui.end_row();
 
@@ -111,58 +99,22 @@ impl SettingsWindow {
                     .column(Column::exact(width).resizable(false))
                     .body(|mut body| {
                         let row_height = super::SPACING[1] * 3.0;
-                        body.row(row_height, |mut row| {
-                            row.col(|ui| {
-                                if ui
-                                    .selectable_label(
-                                        settings.midi.colors == Colors::Rainbow,
-                                        Colors::Rainbow.as_str(),
-                                    )
-                                    .clicked()
-                                {
-                                    settings.midi.colors = Colors::Rainbow;
-                                }
+                        for colors in [
+                            Colors::Rainbow,
+                            Colors::Random,
+                            Colors::White,
+                            Colors::PianoFromAbove,
+                        ] {
+                            body.row(row_height, |mut row| {
+                                row.col(|ui| {
+                                    ui.selectable_value(
+                                        &mut settings.midi.colors,
+                                        colors,
+                                        colors.as_str(),
+                                    );
+                                });
                             });
-                        });
-                        body.row(row_height, |mut row| {
-                            row.col(|ui| {
-                                if ui
-                                    .selectable_label(
-                                        settings.midi.colors == Colors::Random,
-                                        Colors::Random.as_str(),
-                                    )
-                                    .clicked()
-                                {
-                                    settings.midi.colors = Colors::Random;
-                                }
-                            });
-                        });
-                        body.row(row_height, |mut row| {
-                            row.col(|ui| {
-                                if ui
-                                    .selectable_label(
-                                        settings.midi.colors == Colors::White,
-                                        Colors::White.as_str(),
-                                    )
-                                    .clicked()
-                                {
-                                    settings.midi.colors = Colors::White;
-                                }
-                            });
-                        });
-                        body.row(row_height, |mut row| {
-                            row.col(|ui| {
-                                if ui
-                                    .selectable_label(
-                                        settings.midi.colors == Colors::PianoFromAbove,
-                                        Colors::PianoFromAbove.as_str(),
-                                    )
-                                    .clicked()
-                                {
-                                    settings.midi.colors = Colors::PianoFromAbove;
-                                }
-                            });
-                        });
+                        }
                         let mut temp = self.palettes.clone();
                         for i in temp.iter_mut() {
                             i.selected = false;

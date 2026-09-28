@@ -21,6 +21,8 @@ pub struct XSynthPlayer {
     stats: RealtimeSynthStatsReader,
     stream_params: AudioStreamParams,
     synth: RealtimeSynth,
+    /// Pending note-ons per [channel][key], used to drop orphan note-offs
+    active_notes: Box<[[u32; 128]; 16]>,
 }
 
 impl XSynthPlayer {
@@ -35,6 +37,7 @@ impl XSynthPlayer {
             stats,
             stream_params,
             synth,
+            active_notes: Box::new([[0; 128]; 16]),
         }
     }
 
@@ -44,12 +47,23 @@ impl XSynthPlayer {
 
     pub fn push_events(&mut self, data: impl Iterator<Item = u32>) {
         for ev in data {
+            // Black MIDIs can contain millions of note-offs with no matching note-on.
+            // xsynth forwards those to its channel threads, which process them inside
+            // the render callback and starve the audio buffer, so drop them here.
+            let count = &mut self.active_notes[(ev & 0xF) as usize][((ev >> 8) & 0x7F) as usize];
+            match ev & 0xF0 {
+                0x90 => *count += 1,
+                0x80 if *count == 0 => continue,
+                0x80 => *count -= 1,
+                _ => {}
+            }
             self.sender.send_event_u32(ev);
         }
     }
 
     pub fn reset(&mut self) {
         self.sender.reset_synth();
+        *self.active_notes = [[0; 128]; 16];
     }
 
     pub fn configure(&mut self, settings: &XSynthSettings) {

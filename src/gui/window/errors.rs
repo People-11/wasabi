@@ -1,10 +1,9 @@
 use std::{
-    env::consts::{ARCH, OS},
     fmt,
     sync::{Arc, Mutex},
 };
 
-use egui::{Context, Id, OpenUrl, WidgetText};
+use egui::{Context, Id, WidgetText};
 use midi_toolkit::io::MIDILoadError;
 use xsynth_core::soundfont::LoadSfError;
 
@@ -18,7 +17,6 @@ pub enum WasabiError {
     SynthError(String),
     FilesystemError(std::io::Error),
     SettingsError(String),
-    UpdaterError(String),
     PaletteError(String),
     Other(String),
 }
@@ -38,7 +36,6 @@ impl fmt::Display for WasabiError {
             WasabiError::SynthError(e) => write!(f, "Synth Error: {e}"),
             WasabiError::FilesystemError(e) => write!(f, "Filesystem Error: {e}"),
             WasabiError::SettingsError(e) => write!(f, "Settings Error: {e}"),
-            WasabiError::UpdaterError(e) => write!(f, "Update Error: {e}"),
             WasabiError::PaletteError(e) => write!(f, "Palette Load Error: {e}"),
             WasabiError::Other(e) => write!(f, "Unknown Error: {e}"),
         }
@@ -48,7 +45,6 @@ impl fmt::Display for WasabiError {
 enum MessageType {
     Warning,
     Error,
-    NewUpdate(String),
 }
 
 struct GuiMessage {
@@ -94,38 +90,13 @@ impl GuiMessageSystem {
         });
     }
 
-    pub fn new_update(&self, version: impl Into<String>) {
-        let version: String = version.into();
-
-        let filename = {
-            let ext = if OS == "windows" { ".exe" } else { "" };
-            format!("wasabi-{}-{}{}", OS, ARCH, ext)
-        };
-        let link = format!(
-            "https://github.com/BlackMIDIDevs/wasabi/releases/download/{}/{}",
-            version.clone(),
-            filename
-        );
-
-        self.add(GuiMessage {
-            id: Id::new(rand::random::<u64>()),
-            visible: true,
-            errtype: MessageType::NewUpdate(link),
-            title: "Update Available".into(),
-            message: format!(
-                "A new update for Wasabi ({}) is available.\nWould you like to download it?",
-                version
-            )
-            .into(),
-        });
-    }
-
     pub fn show(&self, ctx: &Context) {
-        self.errors.lock().unwrap().retain(|m| m.visible);
-
         let frame = utils::create_window_frame(ctx);
 
-        for message in self.errors.lock().unwrap().iter_mut() {
+        let mut errors = self.errors.lock().unwrap();
+        errors.retain(|m| m.visible);
+
+        for message in errors.iter_mut() {
             egui::Window::new(&message.title)
                 .id(message.id)
                 .resizable(false)
@@ -135,9 +106,6 @@ impl GuiMessageSystem {
                     let image = match &message.errtype {
                         MessageType::Error => egui::include_image!("../../../assets/error.svg"),
                         MessageType::Warning => egui::include_image!("../../../assets/warning.svg"),
-                        MessageType::NewUpdate(..) => {
-                            egui::include_image!("../../../assets/info.svg")
-                        }
                     };
 
                     ui.horizontal(|ui| {
@@ -147,34 +115,11 @@ impl GuiMessageSystem {
 
                     ui.separator();
 
-                    match &message.errtype {
-                        MessageType::NewUpdate(link) => ui.horizontal(|ui| {
-                            ui.columns(2, |columns| {
-                                columns[0].with_layout(
-                                    egui::Layout::top_down(egui::Align::RIGHT),
-                                    |ui| {
-                                        if ui.button("\u{2705} Yes").clicked() {
-                                            ctx.open_url(OpenUrl::new_tab(link));
-                                            message.visible = false;
-                                        }
-                                    },
-                                );
-                                columns[1].with_layout(
-                                    egui::Layout::top_down(egui::Align::LEFT),
-                                    |ui| {
-                                        if ui.button("\u{2716} No").clicked() {
-                                            message.visible = false;
-                                        }
-                                    },
-                                );
-                            });
-                        }),
-                        _ => ui.vertical_centered(|ui| {
-                            if ui.button("\u{2705} OK").clicked() {
-                                message.visible = false;
-                            }
-                        }),
-                    }
+                    ui.vertical_centered(|ui| {
+                        if ui.button("\u{2705} OK").clicked() {
+                            message.visible = false;
+                        }
+                    });
                 });
         }
     }

@@ -75,40 +75,29 @@ impl EguiSFList {
     }
 
     fn select_all(&mut self) {
-        self.list = self
-            .list
-            .clone()
-            .into_iter()
-            .map(|mut item| {
-                item.selected = true;
-                item
-            })
-            .collect();
+        for item in &mut self.list {
+            item.selected = true;
+        }
     }
 
     fn remove_selected_items(&mut self) {
-        self.list = self
-            .list
-            .clone()
-            .into_iter()
-            .filter(|item| !item.selected)
-            .collect();
+        self.list.retain(|item| !item.selected);
     }
 
+    /// Moves every selected item one step down; a selected block at the bottom stays put
     fn move_selected_down(&mut self) {
-        let cloned = self.list.clone();
-        for (i, item) in cloned.iter().enumerate() {
-            if i != self.list.len() - 1 && item.selected {
-                self.list.swap(i, i + 1);
+        for i in (1..self.list.len()).rev() {
+            if self.list[i - 1].selected && !self.list[i].selected {
+                self.list.swap(i - 1, i);
             }
         }
     }
 
+    /// Moves every selected item one step up; a selected block at the top stays put
     fn move_selected_up(&mut self) {
-        let cloned = self.list.clone();
-        for (i, item) in cloned.iter().enumerate() {
-            if i != 0 && item.selected {
-                self.list.swap(i, i - 1);
+        for i in 1..self.list.len() {
+            if self.list[i].selected && !self.list[i - 1].selected {
+                self.list.swap(i - 1, i);
             }
         }
     }
@@ -152,30 +141,23 @@ impl EguiSFList {
         }
 
         // Check for paths sent by the file picker
-        {
-            let recv = self.sf_picker.1.clone();
-            if !recv.is_empty() {
-                if let Some(path) = recv.into_iter().next() {
-                    state.last_sf_location = path.clone();
-                    if path.is_file() {
-                        if let Err(err) = self.add_path(path.clone()) {
-                            state
-                                .errors
-                                .warning(format!("Error adding SoundFont to the list: {}", err));
-                        }
-                    }
+        if let Ok(path) = self.sf_picker.1.try_recv() {
+            state.last_sf_location = path.clone();
+            if path.is_file() {
+                if let Err(err) = self.add_path(path) {
+                    state
+                        .errors
+                        .warning(format!("Error adding SoundFont to the list: {}", err));
                 }
             }
         }
 
-        // Show config windows
         for sf in self.list.iter_mut() {
             if sf.config_visible {
                 show_sf_config(ui.ctx(), sf);
             }
         }
 
-        // Render action buttons
         egui::TopBottomPanel::bottom("bottom_panel")
             .resizable(false)
             .show_inside(ui, |ui| {
@@ -194,7 +176,7 @@ impl EguiSFList {
                             let last_sf_location = state.last_sf_location.clone();
 
                             thread::spawn(move || {
-                                let midi_path = rfd::FileDialog::new()
+                                let sf_path = rfd::FileDialog::new()
                                     .add_filter(
                                         "Supported SoundFonts",
                                         &["sfz", "SFZ", "sf2", "SF2"],
@@ -205,8 +187,8 @@ impl EguiSFList {
                                     )
                                     .pick_file();
 
-                                if let Some(midi_path) = midi_path {
-                                    sender.send(midi_path).unwrap_or_default();
+                                if let Some(sf_path) = sf_path {
+                                    sender.send(sf_path).unwrap_or_default();
                                 }
                             });
                         }
@@ -280,7 +262,6 @@ impl EguiSFList {
                 });
             });
 
-        // Render the list
         egui::ScrollArea::both().show(ui, |ui| {
             TableBuilder::new(ui)
                 .striped(true)
@@ -325,23 +306,11 @@ impl EguiSFList {
                                 }
                             });
 
-                            let bank_txt = if let Some(bank) = item.item.options.bank {
-                                format!("{}", bank)
-                            } else {
-                                "-".to_owned()
-                            };
-                            row.col(|ui| {
-                                ui.label(bank_txt.to_string());
-                            });
-
-                            let preset_txt = if let Some(preset) = item.item.options.preset {
-                                format!("{}", preset)
-                            } else {
-                                "-".to_owned()
-                            };
-                            row.col(|ui| {
-                                ui.label(preset_txt.to_string());
-                            });
+                            for value in [item.item.options.bank, item.item.options.preset] {
+                                row.col(|ui| {
+                                    ui.label(value.map_or("-".to_owned(), |v| v.to_string()));
+                                });
+                            }
                         });
                     }
                 });

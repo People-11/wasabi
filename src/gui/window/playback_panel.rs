@@ -21,16 +21,19 @@ impl GuiWasabiWindow {
         settings: &WasabiSettings,
         state: &mut WasabiState,
     ) -> f32 {
-        // Check if mouse is on the panel area
-        let mut mouse_over_panel = false;
-        if let Some(mouse) = ctx.pointer_latest_pos() {
-            if mouse.y < MAX_PANEL_HEIGHT {
-                mouse_over_panel = true;
-            }
-        }
+        let mouse_over_panel = ctx
+            .pointer_latest_pos()
+            .is_some_and(|mouse| mouse.y < MAX_PANEL_HEIGHT);
         let button_size = egui::Vec2::new(26.0, 26.0);
         let icon_color = ctx.style().visuals.strong_text_color();
-        let button_rounding = 8.0;
+        let icon_button = |source: egui::ImageSource<'static>| {
+            egui::ImageButton::new(
+                egui::Image::new(source)
+                    .fit_to_exact_size(button_size)
+                    .tint(icon_color)
+                    .corner_radius(8.0),
+            )
+        };
         let is_popup_open = ctx.memory(|mem| mem.is_popup_open(state.panel_popup_id));
 
         let should_expand = state.panel_pinned || mouse_over_panel || is_popup_open;
@@ -44,7 +47,6 @@ impl GuiWasabiWindow {
                 }
             });
 
-        // If panel is collapsed, do not render it.
         if height < f32::EPSILON {
             return 0.0;
         }
@@ -63,74 +65,43 @@ impl GuiWasabiWindow {
                 }
 
                 ui.horizontal(|ui| {
-                    // Open MIDI button
-                    let folder_img =
-                        egui::Image::new(egui::include_image!("../../../assets/folder.svg"))
-                            .fit_to_exact_size(button_size)
-                            .tint(icon_color)
-                            .corner_radius(button_rounding);
-
                     if ui
-                        .add(egui::ImageButton::new(folder_img))
+                        .add(icon_button(egui::include_image!("../../../assets/folder.svg")))
                         .on_hover_text("Open MIDI")
                         .clicked()
                     {
                         self.open_midi_dialog(state);
                     }
 
-                    // Unload button
-                    let stop_img =
-                        egui::Image::new(egui::include_image!("../../../assets/stop.svg"))
-                            .fit_to_exact_size(button_size)
-                            .tint(icon_color)
-                            .corner_radius(button_rounding);
-
                     if ui
-                        .add(egui::ImageButton::new(stop_img))
+                        .add(icon_button(egui::include_image!("../../../assets/stop.svg")))
                         .on_hover_text("Unload")
                         .clicked()
                     {
-                        if let Some(midi) = self.midi_file.take().as_mut() {
+                        if let Some(mut midi) = self.midi_file.take() {
                             midi.timer_mut().pause();
                             state.synth.reset();
                         }
                     }
 
-                    // Play/Pause button
-                    let playing = if let Some(midi) = self.midi_file.as_ref() {
-                        !midi.timer().is_paused()
+                    let playing = self
+                        .midi_file
+                        .as_ref()
+                        .is_some_and(|midi| !midi.timer().is_paused());
+                    let (play_pause_img, play_pause_text) = if playing {
+                        (egui::include_image!("../../../assets/pause.svg"), "Pause")
                     } else {
-                        false
+                        (egui::include_image!("../../../assets/play.svg"), "Play")
                     };
-                    if playing {
-                        let pause_img =
-                            egui::Image::new(egui::include_image!("../../../assets/pause.svg"))
-                                .fit_to_exact_size(button_size)
-                                .tint(icon_color)
-                                .corner_radius(button_rounding);
-
-                        if ui
-                            .add(egui::ImageButton::new(pause_img))
-                            .on_hover_text("Pause")
-                            .clicked()
-                        {
-                            if let Some(midi_file) = self.midi_file.as_mut() {
+                    if ui
+                        .add(icon_button(play_pause_img))
+                        .on_hover_text(play_pause_text)
+                        .clicked()
+                    {
+                        if let Some(midi_file) = self.midi_file.as_mut() {
+                            if playing {
                                 midi_file.timer_mut().pause();
-                            }
-                        }
-                    } else {
-                        let play_img =
-                            egui::Image::new(egui::include_image!("../../../assets/play.svg"))
-                                .fit_to_exact_size(button_size)
-                                .tint(icon_color)
-                                .corner_radius(button_rounding);
-
-                        if ui
-                            .add(egui::ImageButton::new(play_img))
-                            .on_hover_text("Play")
-                            .clicked()
-                        {
-                            if let Some(midi_file) = self.midi_file.as_mut() {
+                            } else {
                                 midi_file.timer_mut().play();
                             }
                         }
@@ -210,14 +181,8 @@ impl GuiWasabiWindow {
                     ui.separator();
                     ui.add_space(SPACE);
 
-                    // Options button
-                    let options_img =
-                        egui::Image::new(egui::include_image!("../../../assets/options.svg"))
-                            .fit_to_exact_size(button_size)
-                            .tint(icon_color)
-                            .corner_radius(button_rounding);
-
-                    let options = ui.add(egui::ImageButton::new(options_img));
+                    let options =
+                        ui.add(icon_button(egui::include_image!("../../../assets/options.svg")));
 
                     if options.clicked() {
                         ui.memory_mut(|mem| mem.toggle_popup(state.panel_popup_id));
@@ -248,14 +213,11 @@ impl GuiWasabiWindow {
                         },
                     );
 
-                    // Pin button
-                    let pin_img = egui::Image::new(egui::include_image!("../../../assets/pin.svg"))
-                        .fit_to_exact_size(button_size)
-                        .tint(icon_color)
-                        .corner_radius(button_rounding);
-
                     if ui
-                        .add(egui::ImageButton::new(pin_img).selected(state.panel_pinned))
+                        .add(
+                            icon_button(egui::include_image!("../../../assets/pin.svg"))
+                                .selected(state.panel_pinned),
+                        )
                         .on_hover_text("Pin Panel")
                         .clicked()
                     {
@@ -265,10 +227,6 @@ impl GuiWasabiWindow {
             });
 
         // Return the current height of the panel to calculate the statistics pos
-        if let Some(res) = response {
-            res.response.rect.height() * height
-        } else {
-            0.0
-        }
+        response.map_or(0.0, |res| res.response.rect.height() * height)
     }
 }

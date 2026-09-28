@@ -53,7 +53,7 @@ impl WasabiState {
             errors,
             loading_status,
 
-            panel_pinned: true,
+            panel_pinned: false,
             panel_id: egui::Id::new("playback_panel"),
             panel_popup_id: egui::Id::new("options_popup"),
             stats_visible: true,
