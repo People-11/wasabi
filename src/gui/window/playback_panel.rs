@@ -102,7 +102,6 @@ impl GuiWasabiWindow {
                     } else {
                         false
                     };
-
                     if playing {
                         let pause_img =
                             egui::Image::new(egui::include_image!("../../../assets/pause.svg"))
@@ -233,6 +232,12 @@ impl GuiWasabiWindow {
 
                             if ui.button("Settings").clicked() {
                                 state.show_settings = true;
+                            }
+                            if ui.button("Render").clicked() {
+                                if self.midi_file.take().is_some() {
+                                    state.synth.reset();
+                                }
+                                state.show_render = true;
                             }
                             if ui.button("Shortcuts").clicked() {
                                 state.show_shortcuts = true;

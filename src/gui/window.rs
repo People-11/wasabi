@@ -1,13 +1,15 @@
 pub mod fps;
-mod keyboard;
-mod keyboard_layout;
-mod scene;
-mod stats;
+pub mod keyboard;
+pub mod keyboard_layout;
+pub mod scene;
+pub mod stats;
 
 mod about;
 mod errors;
 mod loading;
 mod playback_panel;
+mod render;
+pub mod render_state;
 mod settings;
 mod shortcuts;
 pub use errors::*;
@@ -26,7 +28,7 @@ use tokio::sync::{oneshot, oneshot::Receiver};
 
 use crate::{
     gui::{
-        window::{keyboard::GuiKeyboard, scene::GuiRenderScene},
+        window::{keyboard::draw_keyboard, scene::GuiRenderScene},
         GuiRenderer, GuiState,
     },
     midi::{
@@ -40,7 +42,6 @@ use crate::{
 pub struct GuiWasabiWindow {
     render_scene: GuiRenderScene,
     keyboard_layout: keyboard_layout::KeyboardLayout,
-    keyboard: GuiKeyboard,
     midi_file: Option<MIDIFileUnion>,
     fps: fps::Fps,
     nps: stats::NpsCounter,
@@ -75,7 +76,6 @@ impl GuiWasabiWindow {
         GuiWasabiWindow {
             render_scene: GuiRenderScene::new(renderer),
             keyboard_layout: keyboard_layout::KeyboardLayout::new(&Default::default()),
-            keyboard: GuiKeyboard::new(),
             midi_file: None,
             fps: fps::Fps::new(),
             nps: Default::default(),
@@ -196,6 +196,16 @@ impl GuiWasabiWindow {
             self.show_shortcuts(&ctx, state);
         }
 
+        // Show render window (with priority when rendering)
+        if state.show_render || state.render_state.is_rendering {
+            self.show_render(&ctx, settings, state);
+        }
+
+        // If rendering, block other interactions and skip rest of layout
+        if state.render_state.is_rendering {
+            return;
+        }
+
         // Set global keyboard shortcuts
         ctx.input(|events| {
             for event in &events.events {
@@ -245,7 +255,7 @@ impl GuiWasabiWindow {
             .inner_margin(egui::Margin::same(0))
             .fill(settings.scene.bg_color);
 
-        let mut stats = stats::GuiMidiStats::empty();
+        let mut stats = stats::GuiMidiStats::default();
 
         let mut render_result_data: Option<scene::RenderResultData> = None;
 
@@ -309,8 +319,8 @@ impl GuiWasabiWindow {
                         midi_file,
                         settings.scene.note_speed,
                     );
-                    stats.set_rendered_note_count(result.notes_rendered);
-                    stats.set_polyphony(result.polyphony);
+                    stats.notes_on_screen = result.notes_rendered;
+                    stats.polyphony = result.polyphony;
                     render_result_data = Some(result);
                 }
             });
@@ -327,14 +337,12 @@ impl GuiWasabiWindow {
                     vec![None; 256]
                 };
 
-                self.keyboard
-                    .draw(ui, &key_view, &colors, &settings.scene.bar_color);
+                draw_keyboard(ui, &key_view, &colors, &settings.scene.bar_color);
             });
 
         // Render the stats
         if state.stats_visible {
-            let voice_count = state.synth.voice_count();
-            stats.set_voice_count(voice_count);
+            stats.voice_count = state.synth.voice_count();
 
             let pad = if settings.scene.statistics.floating {
                 12.0
@@ -342,7 +350,7 @@ impl GuiWasabiWindow {
                 0.0
             };
             let pos = egui::Pos2::new(pad, panel_height + pad);
-            self.draw_stats(&ctx, pos, stats, settings);
+            self.draw_stats(&ctx, pos, stats, settings, false);
         }
 
         // Render errors

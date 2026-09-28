@@ -6,7 +6,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 use vulkano::image::view::ImageView;
 
 use crate::{
-    gui::{window::keyboard_layout::KeyboardView, GuiRenderer},
+    gui::window::keyboard_layout::KeyboardView,
     midi::{DisplacedMIDINote, MIDIColor, MIDIFile, MIDINoteColumnView, MIDINoteViews},
     utils,
 };
@@ -43,9 +43,13 @@ unsafe impl<T> Sync for UnsafeSyncCell<T> {}
 unsafe impl<T> Send for UnsafeSyncCell<T> {}
 
 impl NoteRenderer {
-    pub fn new(renderer: &GuiRenderer) -> NoteRenderer {
+    pub fn new(
+        device: Arc<vulkano::device::Device>,
+        queue: Arc<vulkano::device::Queue>,
+        format: vulkano::format::Format,
+    ) -> NoteRenderer {
         NoteRenderer {
-            render_pass: NoteRenderPass::new(renderer),
+            render_pass: NoteRenderPass::new(device, queue, format),
             thrad_pool: rayon::ThreadPoolBuilder::new().build().unwrap(),
         }
     }
@@ -56,6 +60,8 @@ impl NoteRenderer {
         final_image: Arc<ImageView>,
         midi_file: &mut impl MIDIFile,
         view_range: f64,
+        bg_color: Option<[f32; 4]>,
+        viewport: Option<vulkano::pipeline::graphics::viewport::Viewport>,
     ) -> RenderResultData {
         let note_views = midi_file.get_current_column_views(view_range);
 
@@ -121,7 +127,7 @@ impl NoteRenderer {
         let view_range = note_views.range().length() as f32;
 
         self.render_pass
-            .draw(final_image, key_view, view_range, |buffer| {
+            .draw(final_image, key_view, view_range, bg_color, viewport, |buffer| {
                 let buffer_length = buffer.len() as usize;
 
                 let buffer_writer = UnsafeSyncCell::new(buffer.write().unwrap());

@@ -9,7 +9,7 @@ use winit::{
 
 use std::{
     sync::Arc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 const ICON: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icon.bitmap"));
@@ -166,6 +166,9 @@ impl RenderThread {
 
             self.draw();
             next_frame = Instant::now();
+            if self.state.render_state.is_rendering {
+                next_frame += Duration::from_millis(16);
+            }
         }
     }
 
