@@ -82,3 +82,17 @@ If you prefer to build without MSVC or the Vulkan SDK, you can use [MSYS2](https
 ## License
 
 Wasabi is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html#license-text).
+
+## Performance
+
+This fork includes several performance optimizations. Besides being lighter and smaller overall, optimizations to the renderer and Cake parser reduce RAM usage by 30% and deliver up to 4× the FPS when playing the same MIDI. However, since a certain arrogant developer proudly declares that “no rubbish code is allowed into Wasabi”, I won’t be submitting these optimisations upstream. Instead, they have been split off into the Pie parser. Switch to Pie for maximum performance.
+
+Some optimizations to renderer also break compatibility with applications that rely on DXGI-based hooking, such as "Game Capture" in OBS. But since we already have a video export feature in this fork, screen capturing is meaningless.
+
+## Crash
+
+Like someone who keeps insisting that “you need a dGPU to run Wasabi because Intel drivers are shit and don’t support advanced Vulkan features”, I regret to say this is probably partly true—Wasabi does sacrifice quite of compatibility for performance.
+
+However, unlike his arrogance, I fixed one issue (the only one I personally encountered): when using Cake on an iGPU, a crash can occur because 256 bindings exceed the `maxPerStageDescriptorStorageBuffers` limit. So if you’re using Cake on an iGPU and hit this crash, you can try switching to Pie.
+
+I can’t help with other crashes (especially Wasabi doesn’t even start).
