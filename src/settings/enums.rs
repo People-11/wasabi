@@ -102,6 +102,8 @@ pub enum Colors {
     Rainbow = 0,
     Random = 1,
     Palette = 2,
+    White = 3,
+    PianoFromAbove = 4,
 }
 
 impl Colors {
@@ -111,6 +113,8 @@ impl Colors {
             Colors::Rainbow => "Rainbow",
             Colors::Random => "Random",
             Colors::Palette => "Palette",
+            Colors::White => "White",
+            Colors::PianoFromAbove => "Piano From Above",
         }
     }
 }
