@@ -6,8 +6,8 @@ edition = "2021"
 [dependencies]
 egui = { version = "0.31.0", features = ["serde"] }
 egui_extras = "0.31.0"
-egui-winit = "0.31.0"
-egui_winit_vulkano = "0.28.0"
+egui-winit = { version = "0.31.0", default-features = false }
+egui_winit_vulkano = { version = "0.28.0", default-features = false, features = ["clipboard", "wayland", "x11"] }
 winit = { version = "0.30.12", default-features = false }
 raw-window-handle = "0.6"
 vulkano = "0.35.2"
@@ -30,8 +30,7 @@ ico = "0.4.0"
 rfd = "0.15.4"
 open = "5.3.2"
 time = "0.3.41"
-image = "0.25.6"
-tokio = { version = "1.47.1", features = ["sync"] }
+image = { version = "0.25.6", default-features = false, features = ["png", "jpeg", "bmp"] }
 
 palette = "0.7.6"
 numfmt = "1.2.0"
@@ -53,6 +52,33 @@ winres = "0.1.12"
 opt-level = 2
 
 [profile.release]
+strip = true
 opt-level = 3
+lto = "fat"
 codegen-units = 1
-lto = true
+panic = "abort"
+rpath = false
+
+# Cold code (image/palette & clipboard, SVG icons, SFZ parsing, dialogs):
+# optimize for size, the hot paths (vulkano, egui, xsynth, midi parsing) stay at O3
+[profile.release.package]
+image.opt-level = "z"
+moxcms.opt-level = "z"
+pxfm.opt-level = "z"
+png.opt-level = "z"
+zune-jpeg.opt-level = "z"
+serde_json.opt-level = "z"
+regex.opt-level = "z"
+regex-automata.opt-level = "z"
+regex-syntax.opt-level = "z"
+aho-corasick.opt-level = "z"
+usvg.opt-level = "z"
+resvg.opt-level = "z"
+tiny-skia.opt-level = "z"
+tiny-skia-path.opt-level = "z"
+kurbo.opt-level = "z"
+roxmltree.opt-level = "z"
+svgtypes.opt-level = "z"
+simplecss.opt-level = "z"
+rfd.opt-level = "z"
+arboard.opt-level = "z"
