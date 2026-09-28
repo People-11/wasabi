@@ -246,7 +246,6 @@ impl Renderer {
                 frame: &frame,
                 frame_future: &mut future,
             };
-            egui_extras::install_image_loaders(&gui_state.renderer.gui.context());
             self.gui_window.layout(&mut gui_state, settings, state);
         });
 

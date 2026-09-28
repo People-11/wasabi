@@ -7,7 +7,7 @@ use egui::{Context, Id, WidgetText};
 use midi_toolkit::io::MIDILoadError;
 use xsynth_core::soundfont::LoadSfError;
 
-use crate::utils;
+use crate::{gui::icons::icons, utils};
 
 #[derive(Debug)]
 pub enum WasabiError {
@@ -103,13 +103,13 @@ impl GuiMessageSystem {
                 .collapsible(false)
                 .frame(frame)
                 .show(ctx, |ui| {
-                    let image = match &message.errtype {
-                        MessageType::Error => egui::include_image!("../../../assets/error.svg"),
-                        MessageType::Warning => egui::include_image!("../../../assets/warning.svg"),
+                    let icon = match &message.errtype {
+                        MessageType::Error => icons().error,
+                        MessageType::Warning => icons().warning,
                     };
 
                     ui.horizontal(|ui| {
-                        ui.add(egui::Image::new(image).fit_to_exact_size([64.0, 64.0].into()));
+                        ui.add(egui::Image::from_texture(icon).fit_to_exact_size([64.0, 64.0].into()));
                         ui.label(message.message.clone());
                     });
 

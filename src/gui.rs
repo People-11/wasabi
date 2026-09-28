@@ -8,6 +8,7 @@ use vulkano::{
 
 use crate::renderer::swapchain::SwapchainFrame;
 
+pub mod icons;
 pub mod window;
 
 pub struct GuiState<'a> {

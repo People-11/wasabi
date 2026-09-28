@@ -58,6 +58,7 @@ impl GuiWasabiWindow {
         state: &WasabiState,
     ) -> GuiWasabiWindow {
         Self::set_style(&renderer.gui.context());
+        crate::gui::icons::load(renderer);
         let mut settings_win = SettingsWindow::new(settings);
         settings_win
             .load_palettes(settings)

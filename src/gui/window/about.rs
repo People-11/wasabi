@@ -1,4 +1,4 @@
-use crate::{state::WasabiState, utils};
+use crate::{gui::icons::icons, state::WasabiState, utils};
 use std::env::consts::{ARCH, OS};
 
 use super::{GuiWasabiWindow, WasabiError};
@@ -41,7 +41,7 @@ impl GuiWasabiWindow {
 
                     ui.add_space(space);
                     ui.add(
-                        egui::Image::new(egui::include_image!("../../../assets/logo.svg"))
+                        egui::Image::from_texture(icons().logo)
                             .fit_to_exact_size(egui::Vec2::new(image_size, image_size)),
                     );
                     ui.add_space(4.0);

@@ -957,12 +957,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d7439c3735f405729d52c3fbbe4de140eaf938a1fe47d227c27f8254d4302a5"
 
 [[package]]
-name = "data-url"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c297a1c74b71ae29df00c3e22dd9534821d60eb9af5a0192823fa2acea70c2a"
-
-[[package]]
 name = "deranged"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1096,7 +1090,6 @@ dependencies = [
  "log",
  "mime_guess2",
  "profiling",
- "resvg 0.37.0",
 ]
 
 [[package]]
@@ -1662,12 +1655,6 @@ name = "imagesize"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b72ad49b554c1728b1e83254a1b1565aea4161e28dabbfa171fc15fe62299caf"
-
-[[package]]
-name = "imagesize"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "029d73f573d8e8d63e6d5020011d3255b28c3ba85d6cf870a07184ed23de9284"
 
 [[package]]
 name = "imgref"
@@ -3242,23 +3229,9 @@ dependencies = [
  "log",
  "pico-args",
  "rgb",
- "svgtypes 0.11.0",
+ "svgtypes",
  "tiny-skia 0.9.1",
- "usvg 0.32.0",
-]
-
-[[package]]
-name = "resvg"
-version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cadccb3d99a9efb8e5e00c16fbb732cbe400db2ec7fc004697ee7d97d86cf1f4"
-dependencies = [
- "log",
- "pico-args",
- "rgb",
- "svgtypes 0.13.0",
- "tiny-skia 0.11.4",
- "usvg 0.37.0",
+ "usvg",
 ]
 
 [[package]]
@@ -3310,7 +3283,7 @@ dependencies = [
  "roxmltree 0.18.1",
  "simplecss",
  "siphasher",
- "svgtypes 0.11.0",
+ "svgtypes",
 ]
 
 [[package]]
@@ -3330,12 +3303,6 @@ checksum = "862340e351ce1b271a378ec53f304a5558f7db87f3769dc655a8f6ecbb68b302"
 dependencies = [
  "xmlparser",
 ]
-
-[[package]]
-name = "roxmltree"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cd14fd5e3b777a7422cca79358c57a8f6e3a703d9ac187448d0daf220c2407f"
 
 [[package]]
 name = "rubato"
@@ -3710,16 +3677,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "svgtypes"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e44e288cd960318917cbd540340968b90becc8bc81f171345d706e7a89d9d70"
-dependencies = [
- "kurbo",
- "siphasher",
-]
-
-[[package]]
 name = "symphonia"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4026,7 +3983,6 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "log",
- "png",
  "tiny-skia-path 0.11.4",
 ]
 
@@ -4262,22 +4218,8 @@ dependencies = [
  "base64",
  "log",
  "pico-args",
- "usvg-parser 0.32.0",
- "usvg-tree 0.32.0",
- "xmlwriter",
-]
-
-[[package]]
-name = "usvg"
-version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38b0a51b72ab80ca511d126b77feeeb4fb1e972764653e61feac30adc161a756"
-dependencies = [
- "base64",
- "log",
- "pico-args",
- "usvg-parser 0.37.0",
- "usvg-tree 0.37.0",
+ "usvg-parser",
+ "usvg-tree",
  "xmlwriter",
 ]
 
@@ -4287,33 +4229,15 @@ version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90c8251d965c2882a636ffcc054340b1f13a6bce68779cb5b2084d8ffc2535be"
 dependencies = [
- "data-url 0.2.0",
+ "data-url",
  "flate2",
- "imagesize 0.11.0",
+ "imagesize",
  "kurbo",
  "log",
  "rosvgtree",
  "strict-num",
- "svgtypes 0.11.0",
- "usvg-tree 0.32.0",
-]
-
-[[package]]
-name = "usvg-parser"
-version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bd4e3c291f45d152929a31f0f6c819245e2921bfd01e7bd91201a9af39a2bdc"
-dependencies = [
- "data-url 0.3.1",
- "flate2",
- "imagesize 0.12.0",
- "kurbo",
- "log",
- "roxmltree 0.19.0",
- "simplecss",
- "siphasher",
- "svgtypes 0.13.0",
- "usvg-tree 0.37.0",
+ "svgtypes",
+ "usvg-tree",
 ]
 
 [[package]]
@@ -4325,19 +4249,7 @@ dependencies = [
  "kurbo",
  "rctree",
  "strict-num",
- "svgtypes 0.11.0",
-]
-
-[[package]]
-name = "usvg-tree"
-version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ee3d202ebdb97a6215604b8f5b4d6ef9024efd623cf2e373a6416ba976ec7d3"
-dependencies = [
- "rctree",
- "strict-num",
- "svgtypes 0.13.0",
- "tiny-skia-path 0.11.4",
+ "svgtypes",
 ]
 
 [[package]]
@@ -4465,7 +4377,7 @@ dependencies = [
  "rand 0.9.2",
  "raw-window-handle",
  "rayon",
- "resvg 0.32.0",
+ "resvg",
  "rfd",
  "rustc-hash 2.1.1",
  "serde",
