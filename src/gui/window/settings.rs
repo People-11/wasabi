@@ -201,7 +201,6 @@ impl SettingsWindow {
         let con = midir::MidiOutput::new("wasabi")
             .map_err(|e| WasabiError::SynthError(format!("{e:?}")))?;
 
-        // Add all valid ports
         for port in con.ports().iter() {
             let name = con
                 .port_name(port)
