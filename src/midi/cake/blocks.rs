@@ -1,4 +1,5 @@
-use crate::midi::{IntVector4, MIDIColor};
+use super::intvec4::IntVector4;
+use crate::midi::MIDIColor;
 
 pub struct CakeBlock {
     pub start_time: u32,
@@ -7,8 +8,6 @@ pub struct CakeBlock {
 }
 
 pub struct CakeNoteData {
-    pub start_time: u32,
-    pub end_time: u32,
     pub color: MIDIColor,
 }
 
@@ -39,8 +38,6 @@ impl CakeBlock {
             None
         } else {
             Some(CakeNoteData {
-                start_time: note.note_start(),
-                end_time: note.note_end(),
                 color: MIDIColor::from_u32(note.note_color()),
             })
         }

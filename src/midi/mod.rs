@@ -1,8 +1,5 @@
-#[allow(dead_code)]
 mod cake;
-#[allow(dead_code)]
 mod live;
-#[allow(dead_code)]
 mod ram;
 
 mod audio;
@@ -10,13 +7,12 @@ mod audio;
 mod shared;
 use std::{fs::File, path::PathBuf, time::UNIX_EPOCH};
 
-use enum_dispatch::enum_dispatch;
 use image::{DynamicImage, GenericImageView, ImageReader};
 use palette::{convert::FromColorUnclamped, Hsv, Srgb};
 use rand::seq::IteratorRandom;
 use rand::Rng;
 
-pub use cake::{blocks::CakeBlock, intvec4::IntVector4, CakeMIDIFile, CakeSignature};
+pub use cake::{CakeBlock, CakeMIDIFile, CakeSignature, IntVector4};
 pub use live::LiveLoadMIDIFile;
 pub use ram::InRamMIDIFile;
 
@@ -101,31 +97,19 @@ impl MIDIColor {
     }
 
     pub fn new_vec(tracks: usize) -> Vec<Self> {
-        let count = tracks * 16;
-
-        let mut vec = Vec::with_capacity(count);
-        for i in 0..count {
-            let track = i / 16;
-            let channel = i % 16;
-            let value = track + channel;
-            vec.push(MIDIColor::new_from_hue(value as f64 * -16.0 % 360.0));
-        }
-
-        vec
+        (0..tracks * 16)
+            .map(|i| {
+                let (track, channel) = (i / 16, i % 16);
+                MIDIColor::new_from_hue((track + channel) as f64 * -16.0 % 360.0)
+            })
+            .collect()
     }
 
     pub fn new_random_vec(tracks: usize) -> Vec<Self> {
-        let count = tracks * 16;
-
-        let mut vec = Vec::with_capacity(count);
-        for _ in 0..count {
-            let r = rand::rng().random_range(0..255) as u8;
-            let g = rand::rng().random_range(0..255) as u8;
-            let b = rand::rng().random_range(0..255) as u8;
-            vec.push(MIDIColor::new(r, g, b));
-        }
-
-        vec
+        let mut rng = rand::rng();
+        (0..tracks * 16)
+            .map(|_| MIDIColor::new(rng.random(), rng.random(), rng.random()))
+            .collect()
     }
 
     pub fn new_vec_from_palette(tracks: usize, image: DynamicImage, randomize: bool) -> Vec<Self> {
@@ -208,11 +192,8 @@ impl MIDIColor {
 
 /// The basic shared functions in a midi file. The columns related functions are
 /// inside the [`MIDIFile`] trait.
-#[allow(dead_code)]
-#[enum_dispatch]
 pub trait MIDIFileBase {
     fn midi_length(&self) -> Option<f64>;
-    fn parsed_up_to(&self) -> Option<f64>;
 
     fn timer(&self) -> &TimeKeeper;
     fn timer_mut(&mut self) -> &mut TimeKeeper;
@@ -220,8 +201,6 @@ pub trait MIDIFileBase {
     fn stats(&self) -> MIDIFileStats;
 
     fn allows_seeking_backward(&self) -> bool;
-
-    fn signature(&self) -> &MIDIFileUniqueSignature;
 }
 
 /// This trait contains a function to retrieve the column view of the midi
@@ -256,9 +235,46 @@ pub struct DisplacedMIDINote {
     pub color: MIDIColor,
 }
 
-#[enum_dispatch(MIDIFileBase)]
 pub enum MIDIFileUnion {
     InRam(ram::InRamMIDIFile),
     Live(live::LiveLoadMIDIFile),
     Cake(cake::CakeMIDIFile),
+}
+
+impl MIDIFileBase for MIDIFileUnion {
+    fn midi_length(&self) -> Option<f64> {
+        match self {
+            MIDIFileUnion::InRam(f) => f.midi_length(),
+            MIDIFileUnion::Live(f) => f.midi_length(),
+            MIDIFileUnion::Cake(f) => f.midi_length(),
+        }
+    }
+    fn timer(&self) -> &TimeKeeper {
+        match self {
+            MIDIFileUnion::InRam(f) => f.timer(),
+            MIDIFileUnion::Live(f) => f.timer(),
+            MIDIFileUnion::Cake(f) => f.timer(),
+        }
+    }
+    fn timer_mut(&mut self) -> &mut TimeKeeper {
+        match self {
+            MIDIFileUnion::InRam(f) => f.timer_mut(),
+            MIDIFileUnion::Live(f) => f.timer_mut(),
+            MIDIFileUnion::Cake(f) => f.timer_mut(),
+        }
+    }
+    fn stats(&self) -> MIDIFileStats {
+        match self {
+            MIDIFileUnion::InRam(f) => f.stats(),
+            MIDIFileUnion::Live(f) => f.stats(),
+            MIDIFileUnion::Cake(f) => f.stats(),
+        }
+    }
+    fn allows_seeking_backward(&self) -> bool {
+        match self {
+            MIDIFileUnion::InRam(f) => f.allows_seeking_backward(),
+            MIDIFileUnion::Live(f) => f.allows_seeking_backward(),
+            MIDIFileUnion::Cake(f) => f.allows_seeking_backward(),
+        }
+    }
 }

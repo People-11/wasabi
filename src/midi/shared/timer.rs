@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::time::Instant;
 use time::Duration;
 
@@ -64,29 +62,22 @@ impl TimeKeeper {
         let (snd, rcv) = crossbeam_channel::unbounded();
         self.listeners.push(snd);
         TimeListener {
-            reciever: rcv,
+            receiver: rcv,
             current: self.current_state.clone(),
         }
     }
 
     fn notify_listeners(&mut self, seeked: bool) {
-        let mut i = 0;
-        while i < self.listeners.len() {
-            let listener = &mut self.listeners[i];
-
-            let signal = NotifySignal {
-                new_state: self.current_state.clone(),
-                has_seeked: seeked,
-            };
-
-            match listener.send(signal) {
-                Ok(_) => i += 1,
-                Err(_e) => {
-                    // The listener has been dropped, so we remove the sender
-                    self.listeners.remove(i);
-                }
-            }
-        }
+        // Listeners that were dropped fail to receive and are removed
+        let state = &self.current_state;
+        self.listeners.retain(|listener| {
+            listener
+                .send(NotifySignal {
+                    new_state: state.clone(),
+                    has_seeked: seeked,
+                })
+                .is_ok()
+        });
     }
 
     pub fn toggle_pause(&mut self) {
@@ -135,7 +126,7 @@ impl TimeKeeper {
 }
 
 pub struct TimeListener {
-    reciever: crossbeam_channel::Receiver<NotifySignal>,
+    receiver: crossbeam_channel::Receiver<NotifySignal>,
     current: TimerState,
 }
 
@@ -173,7 +164,7 @@ impl TimeListener {
 
         // TODO: Maybe find a more reliable way to wait while still reading?
         let result = self
-            .reciever
+            .receiver
             .recv_timeout((time - curr_time).unsigned_abs());
 
         match result {
@@ -202,7 +193,7 @@ impl TimeListener {
         let mut seeked = None;
 
         loop {
-            let result = self.reciever.recv();
+            let result = self.receiver.recv();
 
             match result {
                 Ok(signal) => {
@@ -227,7 +218,7 @@ impl TimeListener {
     pub fn wait_until_seeked(&mut self) -> SeekWaitResult {
         let mut seeked = false;
         loop {
-            let result = self.reciever.recv();
+            let result = self.receiver.recv();
 
             match result {
                 Ok(signal) => {

@@ -18,7 +18,7 @@ use crate::{
         audio::ram::InRamAudioPlayer,
         open_file_and_signature,
         ram::{column::InRamNoteColumn, view::InRamNoteViewData},
-        shared::{audio::CompressedAudio, timer::TimeKeeper, track_channel::TrackAndChannel},
+        shared::{audio::FlatAudio, timer::TimeKeeper, track_channel::TrackAndChannel},
         MIDIColor,
     },
     settings::MidiSettings,
@@ -100,7 +100,7 @@ impl InRamMIDIFile {
         player: Arc<WasabiAudioPlayer>,
         settings: &MidiSettings,
     ) -> Result<Self, WasabiError> {
-        let (file, signature) = open_file_and_signature(path)?;
+        let (file, _) = open_file_and_signature(path)?;
         let midi = TKMIDIFile::open_from_stream(file, None).map_err(WasabiError::MidiLoadError)?;
 
         let ppq = midi.ppq();
@@ -161,11 +161,8 @@ impl InRamMIDIFile {
             (keys, notes)
         });
 
-        let audio_join_handle = thread::spawn(|| {
-            let vec: Vec<_> = CompressedAudio::build_blocks(audio_rcv.into_iter()).collect();
-            vec
-        });
-
+        let audio_join_handle =
+            thread::spawn(move || FlatAudio::build_from_batches(audio_rcv.into_iter()));
         let mut length = 0.0;
 
         // Write events to the threads
@@ -184,7 +181,7 @@ impl InRamMIDIFile {
 
         let mut timer = TimeKeeper::new(settings.start_delay);
 
-        InRamAudioPlayer::new(audio, timer.get_listener(), player).spawn_playback();
+        InRamAudioPlayer::new(Arc::new(audio), timer.get_listener(), player).spawn_playback();
 
         let columns = keys
             .into_iter()
@@ -198,7 +195,6 @@ impl InRamMIDIFile {
             timer,
             length,
             note_count,
-            signature,
         })
     }
 }

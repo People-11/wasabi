@@ -15,7 +15,7 @@ use self::{
 
 use super::{
     open_file_and_signature, shared::timer::TimeKeeper, MIDIColor, MIDIFile, MIDIFileBase,
-    MIDIFileStats, MIDIFileUniqueSignature, MIDIViewRange,
+    MIDIFileStats, MIDIViewRange,
 };
 
 pub mod block;
@@ -32,7 +32,6 @@ pub struct LiveLoadMIDIFile {
     view_data: LiveNoteViewData,
     timer: TimeKeeper,
     stats: Arc<RwLock<Option<ParseStats>>>,
-    signature: MIDIFileUniqueSignature,
 }
 
 impl LiveLoadMIDIFile {
@@ -41,7 +40,7 @@ impl LiveLoadMIDIFile {
         player: Arc<WasabiAudioPlayer>,
         settings: &MidiSettings,
     ) -> Result<Self, WasabiError> {
-        let (file, signature) = open_file_and_signature(path)?;
+        let (file, _) = open_file_and_signature(path)?;
 
         let midi = TKMIDIFile::open_from_stream(file, None).map_err(WasabiError::MidiLoadError)?;
 
@@ -72,7 +71,6 @@ impl LiveLoadMIDIFile {
             view_data: file,
             timer,
             stats,
-            signature,
         })
     }
 }
@@ -81,10 +79,6 @@ impl MIDIFileBase for LiveLoadMIDIFile {
     fn midi_length(&self) -> Option<f64> {
         let data = self.stats.read().unwrap();
         data.as_ref().map(|data| data.length)
-    }
-
-    fn parsed_up_to(&self) -> Option<f64> {
-        Some(self.view_data.parse_time())
     }
 
     fn timer(&self) -> &TimeKeeper {
@@ -106,10 +100,6 @@ impl MIDIFileBase for LiveLoadMIDIFile {
             passed_notes: Some(self.view_data.passed_notes()),
             total_notes: stats.as_ref().map(|stats| stats.note_count),
         }
-    }
-
-    fn signature(&self) -> &MIDIFileUniqueSignature {
-        &self.signature
     }
 }
 

@@ -1,7 +1,7 @@
 use self::view::{InRamCurrentNoteViews, InRamNoteViewData};
 
 use super::{
-    shared::timer::TimeKeeper, MIDIFile, MIDIFileBase, MIDIFileStats, MIDIFileUniqueSignature,
+    shared::timer::TimeKeeper, MIDIFile, MIDIFileBase, MIDIFileStats,
     MIDIViewRange,
 };
 
@@ -15,18 +15,11 @@ pub struct InRamMIDIFile {
     timer: TimeKeeper,
     length: f64,
     note_count: u64,
-    signature: MIDIFileUniqueSignature,
 }
-
-impl InRamMIDIFile {}
 
 impl MIDIFileBase for InRamMIDIFile {
     fn midi_length(&self) -> Option<f64> {
         Some(self.length)
-    }
-
-    fn parsed_up_to(&self) -> Option<f64> {
-        None
     }
 
     fn timer(&self) -> &TimeKeeper {
@@ -46,10 +39,6 @@ impl MIDIFileBase for InRamMIDIFile {
             total_notes: Some(self.note_count),
             passed_notes: Some(self.view_data.passed_notes()),
         }
-    }
-
-    fn signature(&self) -> &MIDIFileUniqueSignature {
-        &self.signature
     }
 }
 

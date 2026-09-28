@@ -18,13 +18,14 @@ use crate::{
         audio::ram::InRamAudioPlayer,
         cake::tree_threader::{NoteEvent, ThreadedTreeSerializers},
         open_file_and_signature,
-        shared::{audio::CompressedAudio, timer::TimeKeeper},
+        shared::{audio::FlatAudio, timer::TimeKeeper},
         MIDIColor,
     },
     settings::MidiSettings,
 };
 
-use self::blocks::CakeBlock;
+pub use self::blocks::CakeBlock;
+pub use self::intvec4::IntVector4;
 
 use super::{MIDIFileBase, MIDIFileStats, MIDIFileUniqueSignature};
 
@@ -132,10 +133,8 @@ impl CakeMIDIFile {
             (keys, note_count)
         });
 
-        let audio_join_handle = thread::spawn(|| {
-            let vec: Vec<_> = CompressedAudio::build_blocks(audio_rcv.into_iter()).collect();
-            vec
-        });
+        let audio_join_handle =
+            thread::spawn(move || FlatAudio::build_from_batches(audio_rcv.into_iter()));
 
         let mut length = 0.0;
 
@@ -151,7 +150,7 @@ impl CakeMIDIFile {
         drop(audio_snd);
 
         let (keys, note_count) = key_join_handle.join().unwrap();
-        let audio = audio_join_handle.join().unwrap();
+        let audio = Arc::new(audio_join_handle.join().unwrap());
 
         let mut timer = TimeKeeper::new(settings.start_delay);
 
@@ -202,10 +201,6 @@ impl MIDIFileBase for CakeMIDIFile {
         Some(self.length)
     }
 
-    fn parsed_up_to(&self) -> Option<f64> {
-        None
-    }
-
     fn timer(&self) -> &TimeKeeper {
         &self.timer
     }
@@ -232,9 +227,5 @@ impl MIDIFileBase for CakeMIDIFile {
             total_notes: Some(self.note_count),
             passed_notes: Some(passed_notes),
         }
-    }
-
-    fn signature(&self) -> &MIDIFileUniqueSignature {
-        &self.signature
     }
 }

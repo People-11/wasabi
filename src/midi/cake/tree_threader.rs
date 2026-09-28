@@ -4,10 +4,6 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 
 use super::{intvec4::IntVector4, tree_serializer::TreeSerializer};
 
-pub struct MidiData {
-    pub vec: Vec<IntVector4>,
-    pub time: i32,
-}
 
 pub enum NoteEvent {
     On {

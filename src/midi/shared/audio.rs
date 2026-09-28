@@ -6,10 +6,23 @@ use midi_toolkit::{
     sequence::event::{Delta, EventBatch, Track},
 };
 
-pub struct CompressedAudio {
+pub struct RawAudioBlock {
     pub time: f64,
-    data: Vec<u8>,
-    control_only_data: Option<Vec<u8>>,
+    pub data: Vec<u8>,
+    pub control_only_data: Option<Vec<u8>>,
+}
+
+pub struct FlatAudio {
+    pub blocks: Vec<AudioBlockInfo>,
+    control_blocks: Vec<AudioBlockInfo>,
+    data_buffer: Vec<u8>,
+    control_data_buffer: Vec<u8>,
+}
+
+#[derive(Clone, Copy)]
+pub struct AudioBlockInfo {
+    pub time: f64,
+    data_end: usize,
 }
 
 const EV_OFF: u8 = 0x80;
@@ -20,13 +33,13 @@ const EV_PROGRAM: u8 = 0xC0;
 const EV_CHAN_PRESSURE: u8 = 0xD0;
 const EV_PITCH_BEND: u8 = 0xE0;
 
-impl CompressedAudio {
-    pub fn build_blocks<
+impl RawAudioBlock {
+    pub fn build_raw_blocks<
         Iter: Iterator<Item = Arc<Delta<f64, Track<EventBatch<E>>>>>,
         E: MIDIEventEnum,
     >(
         iter: Iter,
-    ) -> impl Iterator<Item = CompressedAudio> {
+    ) -> impl Iterator<Item = RawAudioBlock> {
         let mut builder_vec: Vec<u8> = Vec::new();
         let mut control_builder_vec: Vec<u8> = Vec::new();
         GenIter(
@@ -41,68 +54,18 @@ impl CompressedAudio {
 
                     builder_vec.reserve(min_len);
                     builder_vec.clear();
+                    control_builder_vec.clear();
 
                     for event in block.iter_events() {
-                        match event.as_event() {
-                            Event::NoteOn(e) => {
-                                let head = EV_ON | e.channel;
-                                let events = &[head, e.key, e.velocity];
-                                builder_vec.extend_from_slice(events);
-                            }
-                            Event::NoteOff(e) => {
-                                let head = EV_OFF | e.channel;
-                                let events = &[head, e.key];
-                                builder_vec.extend_from_slice(events);
-                            }
-                            Event::PolyphonicKeyPressure(e) => {
-                                let head = EV_POLYPHONIC | e.channel;
-                                let events = &[head, e.key, e.velocity];
-                                builder_vec.extend_from_slice(events);
-                            }
-                            Event::ControlChange(e) => {
-                                let head = EV_CONTROL | e.channel;
-                                let events = &[head, e.controller, e.value];
-                                builder_vec.extend_from_slice(events);
-                                control_builder_vec.extend_from_slice(events);
-                            }
-                            Event::ProgramChange(e) => {
-                                let head = EV_PROGRAM | e.channel;
-                                let events = &[head, e.program];
-                                builder_vec.extend_from_slice(events);
-                                control_builder_vec.extend_from_slice(events);
-                            }
-                            Event::ChannelPressure(e) => {
-                                let head = EV_CHAN_PRESSURE | e.channel;
-                                let events = &[head, e.pressure];
-                                builder_vec.extend_from_slice(events);
-                                control_builder_vec.extend_from_slice(events);
-                            }
-                            Event::PitchWheelChange(e) => {
-                                let head = EV_PITCH_BEND | e.channel;
-                                let value = e.pitch + 8192;
-                                let events =
-                                    &[head, (value & 0x7F) as u8, ((value >> 7) & 0x7F) as u8];
-                                builder_vec.extend_from_slice(events);
-                                control_builder_vec.extend_from_slice(events);
-                            }
-                            _ => {}
-                        }
+                        append_event(event.as_event(), &mut builder_vec, &mut control_builder_vec);
                     }
 
-                    let mut new_vec = Vec::with_capacity(builder_vec.len());
-                    new_vec.append(&mut builder_vec);
+                    let control_only_data = (!control_builder_vec.is_empty())
+                        .then(|| control_builder_vec.clone());
 
-                    let new_control_vec = if control_builder_vec.is_empty() {
-                        None
-                    } else {
-                        let mut new_control_vec = Vec::with_capacity(control_builder_vec.len());
-                        new_control_vec.append(&mut control_builder_vec);
-                        Some(new_control_vec)
-                    };
-
-                    yield CompressedAudio {
-                        data: new_vec,
-                        control_only_data: new_control_vec,
+                    yield RawAudioBlock {
+                        data: builder_vec.clone(),
+                        control_only_data,
                         time,
                     };
                 }
@@ -111,14 +74,14 @@ impl CompressedAudio {
     }
 
     pub fn iter_events(&self) -> impl '_ + Iterator<Item = u32> {
-        CompressedAudio::iter_events_from_vec(self.data.iter().cloned())
+        RawAudioBlock::iter_events_from_vec(self.data.iter().cloned())
     }
 
     pub fn iter_control_events(&self) -> impl '_ + Iterator<Item = u32> {
-        CompressedAudio::iter_events_from_vec(self.control_only_data.iter().flatten().cloned())
+        RawAudioBlock::iter_events_from_vec(self.control_only_data.iter().flatten().cloned())
     }
 
-    pub fn iter_events_from_vec<'a>(
+    fn iter_events_from_vec<'a>(
         mut iter: impl 'a + Iterator<Item = u8>,
     ) -> impl 'a + Iterator<Item = u32> {
         GenIter(
@@ -143,5 +106,123 @@ impl CompressedAudio {
                 }
             },
         )
+    }
+}
+
+impl FlatAudio {
+    pub fn build_from_batches<
+        Iter: Iterator<Item = Arc<Delta<f64, Track<EventBatch<E>>>>>,
+        E: MIDIEventEnum,
+    >(
+        iter: Iter,
+    ) -> FlatAudio {
+        let mut audio = FlatAudio {
+            blocks: Vec::new(),
+            control_blocks: Vec::new(),
+            data_buffer: Vec::new(),
+            control_data_buffer: Vec::new(),
+        };
+        let mut time = 0.0;
+
+        for batch in iter {
+            time += batch.delta;
+            let data_start = audio.data_buffer.len();
+            let control_start = audio.control_data_buffer.len();
+
+            audio.data_buffer.reserve(batch.count() * 3);
+            for event in batch.iter_events() {
+                append_event(
+                    event.as_event(),
+                    &mut audio.data_buffer,
+                    &mut audio.control_data_buffer,
+                );
+            }
+
+            audio.finish_batch(time, data_start, control_start);
+        }
+
+        audio
+    }
+
+    fn finish_batch(&mut self, time: f64, data_start: usize, control_start: usize) {
+        fn finish_stream(blocks: &mut Vec<AudioBlockInfo>, time: f64, data_end: usize) {
+            if let Some(block) = blocks.last_mut().filter(|block| block.time == time) {
+                block.data_end = data_end;
+            } else {
+                blocks.push(AudioBlockInfo { time, data_end });
+            }
+        }
+
+        if self.data_buffer.len() != data_start {
+            finish_stream(&mut self.blocks, time, self.data_buffer.len());
+        }
+        if self.control_data_buffer.len() != control_start {
+            finish_stream(
+                &mut self.control_blocks,
+                time,
+                self.control_data_buffer.len(),
+            );
+        }
+    }
+
+    pub fn iter_events(&self, block_index: usize) -> impl '_ + Iterator<Item = u32> {
+        let start = block_index
+            .checked_sub(1)
+            .map_or(0, |index| self.blocks[index].data_end);
+        let end = self.blocks[block_index].data_end;
+        let iter = self.data_buffer[start..end].iter().cloned();
+        RawAudioBlock::iter_events_from_vec(iter)
+    }
+
+    pub fn iter_control_events_before(&self, time: f64) -> impl '_ + Iterator<Item = u32> {
+        self.control_blocks
+            .iter()
+            .enumerate()
+            .take_while(move |(_, block)| block.time < time)
+            .flat_map(|(index, block)| {
+                let start = index
+                    .checked_sub(1)
+                    .map_or(0, |index| self.control_blocks[index].data_end);
+                let iter = self.control_data_buffer[start..block.data_end]
+                    .iter()
+                    .cloned();
+                RawAudioBlock::iter_events_from_vec(iter)
+            })
+    }
+}
+
+fn append_event(event: &Event, data: &mut Vec<u8>, control_data: &mut Vec<u8>) {
+    match event {
+        Event::NoteOn(e) => data.extend_from_slice(&[EV_ON | e.channel, e.key, e.velocity]),
+        Event::NoteOff(e) => data.extend_from_slice(&[EV_OFF | e.channel, e.key]),
+        Event::PolyphonicKeyPressure(e) => {
+            data.extend_from_slice(&[EV_POLYPHONIC | e.channel, e.key, e.velocity])
+        }
+        Event::ControlChange(e) => {
+            let event = [EV_CONTROL | e.channel, e.controller, e.value];
+            data.extend_from_slice(&event);
+            control_data.extend_from_slice(&event);
+        }
+        Event::ProgramChange(e) => {
+            let event = [EV_PROGRAM | e.channel, e.program];
+            data.extend_from_slice(&event);
+            control_data.extend_from_slice(&event);
+        }
+        Event::ChannelPressure(e) => {
+            let event = [EV_CHAN_PRESSURE | e.channel, e.pressure];
+            data.extend_from_slice(&event);
+            control_data.extend_from_slice(&event);
+        }
+        Event::PitchWheelChange(e) => {
+            let value = e.pitch + 8192;
+            let event = [
+                EV_PITCH_BEND | e.channel,
+                (value & 0x7F) as u8,
+                ((value >> 7) & 0x7F) as u8,
+            ];
+            data.extend_from_slice(&event);
+            control_data.extend_from_slice(&event);
+        }
+        _ => {}
     }
 }
