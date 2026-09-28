@@ -13,7 +13,9 @@ use rand::seq::IteratorRandom;
 use rand::Rng;
 
 pub use cake::{CakeBlock, CakeMIDIFile, CakeSignature, IntVector4};
+pub mod pie;
 pub use live::LiveLoadMIDIFile;
+pub use pie::PieMIDIFile;
 pub use ram::InRamMIDIFile;
 
 use crate::{
@@ -261,6 +263,7 @@ pub enum MIDIFileUnion {
     InRam(ram::InRamMIDIFile),
     Live(live::LiveLoadMIDIFile),
     Cake(cake::CakeMIDIFile),
+    Pie(pie::PieMIDIFile),
 }
 
 impl MIDIFileBase for MIDIFileUnion {
@@ -269,6 +272,7 @@ impl MIDIFileBase for MIDIFileUnion {
             MIDIFileUnion::InRam(f) => f.midi_length(),
             MIDIFileUnion::Live(f) => f.midi_length(),
             MIDIFileUnion::Cake(f) => f.midi_length(),
+            MIDIFileUnion::Pie(f) => f.midi_length(),
         }
     }
     fn timer(&self) -> &TimeKeeper {
@@ -276,6 +280,7 @@ impl MIDIFileBase for MIDIFileUnion {
             MIDIFileUnion::InRam(f) => f.timer(),
             MIDIFileUnion::Live(f) => f.timer(),
             MIDIFileUnion::Cake(f) => f.timer(),
+            MIDIFileUnion::Pie(f) => f.timer(),
         }
     }
     fn timer_mut(&mut self) -> &mut TimeKeeper {
@@ -283,6 +288,7 @@ impl MIDIFileBase for MIDIFileUnion {
             MIDIFileUnion::InRam(f) => f.timer_mut(),
             MIDIFileUnion::Live(f) => f.timer_mut(),
             MIDIFileUnion::Cake(f) => f.timer_mut(),
+            MIDIFileUnion::Pie(f) => f.timer_mut(),
         }
     }
     fn stats(&self) -> MIDIFileStats {
@@ -290,6 +296,7 @@ impl MIDIFileBase for MIDIFileUnion {
             MIDIFileUnion::InRam(f) => f.stats(),
             MIDIFileUnion::Live(f) => f.stats(),
             MIDIFileUnion::Cake(f) => f.stats(),
+            MIDIFileUnion::Pie(f) => f.stats(),
         }
     }
     fn allows_seeking_backward(&self) -> bool {
@@ -297,6 +304,7 @@ impl MIDIFileBase for MIDIFileUnion {
             MIDIFileUnion::InRam(f) => f.allows_seeking_backward(),
             MIDIFileUnion::Live(f) => f.allows_seeking_backward(),
             MIDIFileUnion::Cake(f) => f.allows_seeking_backward(),
+            MIDIFileUnion::Pie(f) => f.allows_seeking_backward(),
         }
     }
 }

@@ -1,5 +1,6 @@
 mod cake_system;
 mod note_list_system;
+pub mod pie_system;
 
 use egui::{Image, Ui};
 
@@ -8,42 +9,49 @@ use crate::{
     scenes::SceneSwapchain,
 };
 
-use self::{cake_system::CakeRenderer, note_list_system::NoteRenderer};
+use self::{cake_system::CakeRenderer, note_list_system::NoteRenderer, pie_system::PieRenderer};
 
 use super::{keyboard_layout::KeyboardView, GuiRenderer, GuiState};
 
 enum CurrentRenderer {
     Note(NoteRenderer),
     Cake(CakeRenderer),
+    Pie(PieRenderer),
     None,
 }
 
 impl CurrentRenderer {
     fn get_note_renderer(&mut self, renderer: &GuiRenderer) -> &mut NoteRenderer {
+        if !matches!(self, CurrentRenderer::Note(_)) {
+            *self = CurrentRenderer::Note(NoteRenderer::new(renderer));
+        }
         match self {
             CurrentRenderer::Note(renderer) => renderer,
-            _ => {
-                let renderer = NoteRenderer::new(renderer);
-                *self = CurrentRenderer::Note(renderer);
-                match self {
-                    CurrentRenderer::Note(renderer) => renderer,
-                    _ => unreachable!(),
-                }
-            }
+            _ => unreachable!(),
         }
     }
 
     fn get_cake_renderer(&mut self, renderer: &GuiRenderer) -> &mut CakeRenderer {
+        if !matches!(self, CurrentRenderer::Cake(_)) {
+            *self = CurrentRenderer::Cake(CakeRenderer::new(renderer));
+        }
         match self {
             CurrentRenderer::Cake(renderer) => renderer,
-            _ => {
-                let renderer = CakeRenderer::new(renderer);
-                *self = CurrentRenderer::Cake(renderer);
-                match self {
-                    CurrentRenderer::Cake(renderer) => renderer,
-                    _ => unreachable!(),
-                }
-            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn get_pie_renderer(&mut self, renderer: &GuiRenderer) -> &mut PieRenderer {
+        if !matches!(self, CurrentRenderer::Pie(_)) {
+            *self = CurrentRenderer::Pie(PieRenderer::new(
+                renderer.device.clone(),
+                renderer.queue.clone(),
+                renderer.format,
+            ));
+        }
+        match self {
+            CurrentRenderer::Pie(renderer) => renderer,
+            _ => unreachable!(),
         }
     }
 }
@@ -96,6 +104,16 @@ impl GuiRenderScene {
                 .draw_system
                 .get_cake_renderer(state.renderer)
                 .draw(key_view, frame, file, view_range),
+
+            MIDIFileUnion::Pie(file) => {
+                let before = state.frame_future.take().unwrap();
+                let (result, after) = self
+                    .draw_system
+                    .get_pie_renderer(state.renderer)
+                    .draw(key_view, frame, file, view_range, None, None, before);
+                *state.frame_future = Some(after);
+                result
+            }
         };
 
         let img = Image::new((scene_image.id, [size[0] as f32, size[1] as f32].into()));

@@ -30,8 +30,12 @@ impl SettingsWindow {
                     ui.label("MIDI Parsing Algorithm:");
                     ui.monospace("\u{2139}").on_hover_text(
                         "\
+                    - Pie\n\
+                  \0    The fastest mode, based on Cake. The note trees are\n\
+                  \0    kept only in GPU memory once loaded, so it uses much\n\
+                  \0    less RAM and renders at a higher FPS than Cake.\n\
+                  \0    This mode does not support polyphony statistics.\n\
                     - Cake\n\
-                  \0    The most efficient loading and displaying algorithm.\n\
                   \0    The notes will be stored in binary trees and will be\n\
                   \0    displayed dynamically. This mode does not support\n\
                   \0    polyphony statistics.\n\
@@ -51,6 +55,11 @@ impl SettingsWindow {
                             &mut settings.midi.parsing,
                             MidiParsing::Cake,
                             MidiParsing::Cake.as_str(),
+                        );
+                        ui.selectable_value(
+                            &mut settings.midi.parsing,
+                            MidiParsing::Pie,
+                            MidiParsing::Pie.as_str(),
                         );
                         ui.selectable_value(
                             &mut settings.midi.parsing,
