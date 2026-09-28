@@ -14,7 +14,6 @@ use crate::gui::window::WasabiError;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct GuiSettings {
-    pub check_for_updates: bool,
     pub vsync: bool,
     pub skip_control: f64,
     pub speed_control: f64,
@@ -24,7 +23,6 @@ pub struct GuiSettings {
 impl Default for GuiSettings {
     fn default() -> Self {
         Self {
-            check_for_updates: true,
             vsync: true,
             skip_control: 1.0,
             speed_control: 0.05,

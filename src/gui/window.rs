@@ -57,7 +57,6 @@ impl GuiWasabiWindow {
         settings: &mut WasabiSettings,
         state: &WasabiState,
     ) -> GuiWasabiWindow {
-        // to here
         Self::set_style(&renderer.gui.context());
         let mut settings_win = SettingsWindow::new(settings);
         settings_win
@@ -86,7 +85,6 @@ impl GuiWasabiWindow {
         }
     }
 
-    // I think the set_style is not necessary to invoke every frame, it can be set just at init.
     fn set_style(ctx: &egui::Context) {
         let mut fonts = egui::FontDefinitions::default();
 
@@ -144,7 +142,6 @@ impl GuiWasabiWindow {
         ctx.set_style(style);
     }
 
-    /// Defines the layout of our UI
     pub fn layout(
         &mut self,
         gui_state: &mut GuiState,
@@ -152,7 +149,6 @@ impl GuiWasabiWindow {
         state: &mut WasabiState,
     ) {
         let ctx = gui_state.renderer.gui.context();
-        // So it moved from here
 
         // Check for MIDIs selected by the file picker
         if let Some(recv) = self.midi_picker.as_mut() {
@@ -183,7 +179,6 @@ impl GuiWasabiWindow {
             state.show_shortcuts = false;
         }
 
-        // Render windows
         if state.show_settings {
             self.settings_win.show(&ctx, settings, state);
         }
@@ -234,7 +229,6 @@ impl GuiWasabiWindow {
             }
         });
 
-        // Render the panel
         let panel_height = self.show_playback_panel(&ctx, settings, state);
 
         // Calculate available space left for keyboard and notes
@@ -259,7 +253,6 @@ impl GuiWasabiWindow {
 
         let mut render_result_data: Option<scene::RenderResultData> = None;
 
-        // Render the notes
         egui::TopBottomPanel::top("Note panel")
             .height_range(notes_height..=notes_height)
             .frame(no_frame)
@@ -305,7 +298,6 @@ impl GuiWasabiWindow {
                         }
                     });
 
-                    // If song is finished, pause
                     let length = midi_file.midi_length().unwrap_or(0.0);
                     let current = midi_file.timer().get_time().as_seconds_f64();
                     if current > length {
@@ -325,7 +317,6 @@ impl GuiWasabiWindow {
                 }
             });
 
-        // Render the keyboard
         egui::TopBottomPanel::top("Keyboard panel")
             .height_range(keyboard_height..=keyboard_height)
             .frame(no_frame)
@@ -340,7 +331,6 @@ impl GuiWasabiWindow {
                 draw_keyboard(ui, &key_view, &colors, &settings.scene.bar_color);
             });
 
-        // Render the stats
         if state.stats_visible {
             stats.voice_count = state.synth.voice_count();
 
@@ -353,14 +343,12 @@ impl GuiWasabiWindow {
             self.draw_stats(&ctx, pos, stats, settings, false);
         }
 
-        // Render errors
         state.errors.show(&ctx);
 
         self.fps.update();
     }
 
     pub fn open_midi_dialog(&mut self, state: &mut WasabiState) {
-        // Do not open if something is loading already
         if state.loading_status.is_loading() {
             return;
         }
@@ -369,8 +357,7 @@ impl GuiWasabiWindow {
         self.midi_picker = Some(rx);
         let last_location = state.last_midi_location.clone();
 
-        // Open the file picker in a thread so the main UI thread does not freeze
-        // and send the selected path via crossbeam
+        // Open the file picker in a thread so the UI does not freeze
         thread::spawn(move || {
             let midi_path = rfd::FileDialog::new()
                 .add_filter("mid", &["mid", "MID"])
@@ -410,52 +397,28 @@ impl GuiWasabiWindow {
         let (tx, rx) = oneshot::channel();
         self.midi_loader = Some(rx);
 
-        // Load the MIDI in a thread so the UI doesn't freeze and send it
-        // via crossbeam
+        // Load the MIDI in a thread so the UI doesn't freeze
         thread::spawn(move || {
             if let Some(midi_path) = midi_path.to_str() {
-                match settings.parsing {
-                    MidiParsing::Ram => {
-                        match InRamMIDIFile::load_from_file(midi_path, synth, &settings) {
-                            Ok(midi) => {
-                                let midi_file = MIDIFileUnion::InRam(midi);
-                                tx.send(midi_file).ok();
-                            }
-                            Err(e) => errors.error(&e),
-                        }
-                        loading_status.clear();
-                    }
+                let midi = match settings.parsing {
+                    MidiParsing::Ram => InRamMIDIFile::load_from_file(midi_path, synth, &settings)
+                        .map(MIDIFileUnion::InRam),
                     MidiParsing::Live => {
-                        match LiveLoadMIDIFile::load_from_file(midi_path, synth, &settings) {
-                            Ok(midi) => {
-                                let midi_file = MIDIFileUnion::Live(midi);
-                                tx.send(midi_file).ok();
-                            }
-                            Err(e) => errors.error(&e),
-                        }
-                        loading_status.clear();
+                        LiveLoadMIDIFile::load_from_file(midi_path, synth, &settings)
+                            .map(MIDIFileUnion::Live)
                     }
-                    MidiParsing::Cake => {
-                        match CakeMIDIFile::load_from_file(midi_path, synth, &settings) {
-                            Ok(midi) => {
-                                let midi_file = MIDIFileUnion::Cake(midi);
-                                tx.send(midi_file).ok();
-                            }
-                            Err(e) => errors.error(&e),
-                        }
-                        loading_status.clear();
+                    MidiParsing::Cake => CakeMIDIFile::load_from_file(midi_path, synth, &settings)
+                        .map(MIDIFileUnion::Cake),
+                    MidiParsing::Pie => PieMIDIFile::load_from_file(midi_path, synth, &settings)
+                        .map(MIDIFileUnion::Pie),
+                };
+                match midi {
+                    Ok(midi) => {
+                        tx.send(midi).ok();
                     }
-                    MidiParsing::Pie => {
-                        match PieMIDIFile::load_from_file(midi_path, synth, &settings) {
-                            Ok(midi) => {
-                                let midi_file = MIDIFileUnion::Pie(midi);
-                                tx.send(midi_file).ok();
-                            }
-                            Err(e) => errors.error(&e),
-                        }
-                        loading_status.clear();
-                    }
+                    Err(e) => errors.error(&e),
                 }
+                loading_status.clear();
             }
         });
     }

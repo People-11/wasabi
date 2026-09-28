@@ -37,6 +37,7 @@ impl WasabiAudioPlayer {
     pub fn voice_count(&self) -> Option<u64> {
         match &*self.0.read().unwrap() {
             MidiAudioPlayer::XSynth(player) => Some(player.voice_count()),
+            #[cfg(supported_os)]
             MidiAudioPlayer::Kdmapi(player) => player.voice_count(),
             _ => None,
         }
@@ -98,7 +99,6 @@ impl WasabiAudioPlayer {
         // First drop the previous synth to avoid any loading errors
         *self.0.write().unwrap() = MidiAudioPlayer::None;
 
-        // Create the new synth object based on the settings
         let synth = match settings.synth {
             Synth::XSynth => {
                 MidiAudioPlayer::XSynth(XSynthPlayer::new(settings.xsynth.config.clone()))
@@ -122,10 +122,8 @@ impl WasabiAudioPlayer {
             Synth::None => MidiAudioPlayer::None,
         };
 
-        // Apply the synth to the struct
         *self.0.write().unwrap() = synth;
 
-        // Configure the synth and load the soundfont list
         self.configure(settings);
         self.set_soundfonts(&settings.soundfonts, loading_status, errors);
     }

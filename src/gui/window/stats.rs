@@ -97,7 +97,9 @@ pub fn draw_stats_panel(
                         let passed = stats.note_stats.passed_notes.map_or("-".into(), &mut num);
                         let total = stats.note_stats.total_notes.map_or("-".into(), &mut num);
                         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                            ui.monospace(format!("{passed} / {total}"));
+                            let text = format!("{passed} / {total}");
+                            let rect = ui.monospace(&text).rect;
+                            pad_quads(ui, rect, &text);
                         });
                     }
                     Statistics::Nps => stat_row(ui, "NPS:", num(stats.nps)),
@@ -117,9 +119,36 @@ fn stat_row(ui: &mut egui::Ui, label: &str, value: String) {
     ui.horizontal(|ui| {
         ui.monospace(label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.monospace(value);
+            let rect = ui.monospace(&value).rect;
+            pad_quads(ui, rect, &value);
         });
     });
+}
+
+/// Glyph quads every stat value is padded to (longest: "999,999,999 / 999,999,999")
+const VALUE_QUADS: usize = 32;
+
+/// egui uploads a frame's vertices as one sub-allocation, and when its size changes from
+/// frame to frame vulkano's buffer range tracking fragments without bound (see the keyboard).
+/// Stat values change length all the time (9 -> 12 notes), so each one is topped up with
+/// invisible zero-area quads to a fixed count. Whitespace has no glyph quad.
+fn pad_quads(ui: &egui::Ui, rect: egui::Rect, text: &str) {
+    let glyphs = text.chars().filter(|c| !c.is_whitespace()).count();
+    let missing = VALUE_QUADS.saturating_sub(glyphs);
+    if missing == 0 {
+        return;
+    }
+    let mut mesh = egui::Mesh::default();
+    for _ in 0..missing {
+        let i = mesh.vertices.len() as u32;
+        mesh.add_triangle(i, i + 1, i + 2);
+        mesh.add_triangle(i + 2, i + 1, i + 3);
+        for _ in 0..4 {
+            // Inside the clip rect, or the tessellator culls the mesh
+            mesh.colored_vertex(rect.center(), egui::Color32::TRANSPARENT);
+        }
+    }
+    ui.painter().add(mesh);
 }
 
 impl GuiWasabiWindow {

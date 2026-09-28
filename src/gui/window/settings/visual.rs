@@ -19,10 +19,6 @@ impl SettingsWindow {
             .striped(true)
             .min_col_width(width / 2.0)
             .show(ui, |ui| {
-                ui.label("Check for updates on launch:");
-                ui.checkbox(&mut settings.gui.check_for_updates, "");
-                ui.end_row();
-
                 ui.label("Enable VSync:");
                 ui.checkbox(&mut settings.gui.vsync, "");
                 ui.end_row();
