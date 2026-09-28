@@ -231,7 +231,7 @@ impl Renderer {
             return;
         };
 
-        let future = previous_frame_future.join(acquire_future);
+        let mut future = Some(previous_frame_future.join(acquire_future).boxed());
 
         self.gui.immediate_ui(|gui| {
             let mut gui_render_data = GuiRenderer {
@@ -244,6 +244,7 @@ impl Renderer {
             let mut gui_state = GuiState {
                 renderer: &mut gui_render_data,
                 frame: &frame,
+                frame_future: &mut future,
             };
             egui_extras::install_image_loaders(&gui_state.renderer.gui.context());
             self.gui_window.layout(&mut gui_state, settings, state);
@@ -251,7 +252,7 @@ impl Renderer {
 
         let after_future = self
             .gui
-            .draw_on_image(Box::new(future), frame.image.clone());
+            .draw_on_image(future.unwrap(), frame.image.clone());
 
         frame.present(&self.queue, after_future);
     }
