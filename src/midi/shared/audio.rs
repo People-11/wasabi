@@ -32,6 +32,8 @@ const EV_CONTROL: u8 = 0xB0;
 const EV_PROGRAM: u8 = 0xC0;
 const EV_CHAN_PRESSURE: u8 = 0xD0;
 const EV_PITCH_BEND: u8 = 0xE0;
+/// A note-on with the velocity of the previous one, which is left out (see `EventWriter`)
+const EV_ON_SAME_VELOCITY: u8 = 0xF0;
 
 impl RawAudioBlock {
     pub fn build_raw_blocks<
@@ -56,8 +58,10 @@ impl RawAudioBlock {
                     builder_vec.clear();
                     control_builder_vec.clear();
 
+                    let mut data = EventWriter::new(&mut builder_vec);
+                    let mut control_data = EventWriter::new(&mut control_builder_vec);
                     for event in block.iter_events() {
-                        append_event(event.as_event(), &mut builder_vec, &mut control_builder_vec);
+                        append_event(event.as_event(), &mut data, &mut control_data);
                     }
 
                     let control_only_data = (!control_builder_vec.is_empty())
@@ -87,19 +91,28 @@ impl RawAudioBlock {
         GenIter(
             #[coroutine]
             move || {
-                while let Some(next) = iter.next() {
-                    let ev = next & 0xF0;
-                    let val = match ev {
-                        EV_OFF | EV_PROGRAM | EV_CHAN_PRESSURE => {
-                            let val2 = iter.next().unwrap() as u32;
-                            (next as u32) | (val2 << 8)
+                // Running state, see `EventWriter`
+                let mut status = 0u8;
+                let mut velocity = 0u8;
+                while let Some(mut next) = iter.next() {
+                    if next & 0x80 != 0 {
+                        status = next;
+                        next = iter.next().unwrap();
+                    }
+                    let val2 = next as u32;
+                    let val = match status & 0xF0 {
+                        EV_ON_SAME_VELOCITY => {
+                            (EV_ON | status & 0x0F) as u32 | (val2 << 8) | ((velocity as u32) << 16)
                         }
-                        EV_ON | EV_POLYPHONIC | EV_CONTROL | EV_PITCH_BEND => {
-                            let val2 = iter.next().unwrap() as u32;
-                            let val3 = iter.next().unwrap() as u32;
-                            (next as u32) | (val2 << 8) | (val3 << 16)
+                        EV_OFF | EV_PROGRAM | EV_CHAN_PRESSURE => (status as u32) | (val2 << 8),
+                        ev @ (EV_ON | EV_POLYPHONIC | EV_CONTROL | EV_PITCH_BEND) => {
+                            let val3 = iter.next().unwrap();
+                            if ev == EV_ON {
+                                velocity = val3;
+                            }
+                            (status as u32) | (val2 << 8) | ((val3 as u32) << 16)
                         }
-                        _ => panic!("Can't reach {next:#x}"),
+                        _ => panic!("Can't reach {status:#x}"),
                     };
 
                     yield val;
@@ -129,18 +142,19 @@ impl FlatAudio {
             let data_start = audio.data_buffer.len();
             let control_start = audio.control_data_buffer.len();
 
-            audio.data_buffer.reserve(batch.count() * 3);
+            let mut data = EventWriter::new(&mut audio.data_buffer);
+            let mut control_data = EventWriter::new(&mut audio.control_data_buffer);
             for event in batch.iter_events() {
-                append_event(
-                    event.as_event(),
-                    &mut audio.data_buffer,
-                    &mut audio.control_data_buffer,
-                );
+                append_event(event.as_event(), &mut data, &mut control_data);
             }
 
             audio.finish_batch(time, data_start, control_start);
         }
 
+        audio.blocks.shrink_to_fit();
+        audio.control_blocks.shrink_to_fit();
+        audio.data_buffer.shrink_to_fit();
+        audio.control_data_buffer.shrink_to_fit();
         audio
     }
 
@@ -191,38 +205,114 @@ impl FlatAudio {
     }
 }
 
-fn append_event(event: &Event, data: &mut Vec<u8>, control_data: &mut Vec<u8>) {
-    match event {
-        Event::NoteOn(e) => data.extend_from_slice(&[EV_ON | e.channel, e.key, e.velocity]),
-        Event::NoteOff(e) => data.extend_from_slice(&[EV_OFF | e.channel, e.key]),
-        Event::PolyphonicKeyPressure(e) => {
-            data.extend_from_slice(&[EV_POLYPHONIC | e.channel, e.key, e.velocity])
+/// Writes one block's events. Within a block a status byte equal to the previous one is
+/// left out (running status), as is the velocity of a note-on that repeats the previous
+/// note-on's (written as `EV_ON_SAME_VELOCITY`). A new writer starts with no running state,
+/// so every block can be decoded on its own.
+struct EventWriter<'a> {
+    buf: &'a mut Vec<u8>,
+    status: u8,
+    velocity: u8,
+}
+
+impl<'a> EventWriter<'a> {
+    fn new(buf: &'a mut Vec<u8>) -> Self {
+        // Status bytes are >= 0x80 and velocities < 0x80, so neither matches at first
+        EventWriter {
+            buf,
+            status: 0,
+            velocity: 0xFF,
         }
-        Event::ControlChange(e) => {
-            let event = [EV_CONTROL | e.channel, e.controller, e.value];
-            data.extend_from_slice(&event);
-            control_data.extend_from_slice(&event);
+    }
+
+    fn write(&mut self, mut status: u8, data: &[u8]) {
+        // Data bytes must stay below 0x80 to be told apart from status bytes
+        let mut bytes = [0; 2];
+        for (byte, value) in bytes.iter_mut().zip(data) {
+            *byte = value & 0x7F;
         }
-        Event::ProgramChange(e) => {
-            let event = [EV_PROGRAM | e.channel, e.program];
-            data.extend_from_slice(&event);
-            control_data.extend_from_slice(&event);
+        let mut data = &bytes[..data.len()];
+
+        if status & 0xF0 == EV_ON {
+            if data[1] == self.velocity {
+                status = EV_ON_SAME_VELOCITY | status & 0x0F;
+                data = &data[..1];
+            } else {
+                self.velocity = data[1];
+            }
         }
-        Event::ChannelPressure(e) => {
-            let event = [EV_CHAN_PRESSURE | e.channel, e.pressure];
-            data.extend_from_slice(&event);
-            control_data.extend_from_slice(&event);
+        if status != self.status {
+            self.buf.push(status);
+            self.status = status;
         }
+        self.buf.extend_from_slice(data);
+    }
+}
+
+fn append_event(event: &Event, data: &mut EventWriter, control_data: &mut EventWriter) {
+    let (status, bytes, control) = match event {
+        Event::NoteOn(e) => (EV_ON | e.channel, [e.key, e.velocity], false),
+        Event::NoteOff(e) => (EV_OFF | e.channel, [e.key, 0], false),
+        Event::PolyphonicKeyPressure(e) => (EV_POLYPHONIC | e.channel, [e.key, e.velocity], false),
+        Event::ControlChange(e) => (EV_CONTROL | e.channel, [e.controller, e.value], true),
+        Event::ProgramChange(e) => (EV_PROGRAM | e.channel, [e.program, 0], true),
+        Event::ChannelPressure(e) => (EV_CHAN_PRESSURE | e.channel, [e.pressure, 0], true),
         Event::PitchWheelChange(e) => {
             let value = e.pitch + 8192;
-            let event = [
-                EV_PITCH_BEND | e.channel,
-                (value & 0x7F) as u8,
-                ((value >> 7) & 0x7F) as u8,
-            ];
-            data.extend_from_slice(&event);
-            control_data.extend_from_slice(&event);
+            let bytes = [(value & 0x7F) as u8, ((value >> 7) & 0x7F) as u8];
+            (EV_PITCH_BEND | e.channel, bytes, true)
         }
-        _ => {}
+        _ => return,
+    };
+    let len = match status & 0xF0 {
+        EV_OFF | EV_PROGRAM | EV_CHAN_PRESSURE => 1,
+        _ => 2,
+    };
+    data.write(status, &bytes[..len]);
+    if control {
+        control_data.write(status, &bytes[..len]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn running_status_round_trip() {
+        // (status, data): repeated statuses and velocities, a velocity change, a channel
+        // change, an out-of-range data byte, and every other event type
+        let events: &[(u8, &[u8])] = &[
+            (0x90, &[60, 100]),
+            (0x90, &[62, 100]),
+            (0x90, &[64, 90]),
+            (0x91, &[64, 90]),
+            (0x80, &[60]),
+            (0x80, &[62]),
+            (0x91, &[65, 200]),
+            (0xA3, &[1, 2]),
+            (0xB4, &[7, 127]),
+            (0xC5, &[3]),
+            (0xD6, &[4]),
+            (0xE7, &[0, 64]),
+            (0x90, &[66, 72]),
+        ];
+        let mut buf = Vec::new();
+        let mut writer = EventWriter::new(&mut buf);
+        for &(status, data) in events {
+            writer.write(status, data);
+        }
+        let decoded: Vec<u32> = RawAudioBlock::iter_events_from_vec(buf.iter().cloned()).collect();
+        let expected: Vec<u32> = events
+            .iter()
+            .map(|&(status, data)| {
+                data.iter()
+                    .enumerate()
+                    .fold(status as u32, |v, (i, &b)| v | ((b & 0x7F) as u32) << (8 * (i + 1)))
+            })
+            .collect();
+        assert_eq!(decoded, expected);
+        // 35 bytes without running status or velocity
+        assert_eq!(buf.len(), 31);
     }
 }

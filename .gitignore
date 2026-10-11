@@ -4,3 +4,4 @@ wasabi_config.toml
 .vscode
 .envrc
 shell.nix
+/.cargo/egui_winit_vulkano

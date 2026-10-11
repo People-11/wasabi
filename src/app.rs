@@ -137,6 +137,13 @@ impl RenderThread {
     }
 
     fn run(mut self, rx: Receiver<WindowEvent>) {
+        // A MIDI passed on the command line (e.g. "Open with") is loaded right away
+        if let Some(path) = std::env::args_os().nth(1) {
+            self.renderer
+                .gui_window()
+                .load_midi(path.into(), &mut self.settings, &self.state);
+        }
+
         let mut next_frame = Instant::now();
         loop {
             // Sleep while minimized, or until the next frame is due (throttled only while

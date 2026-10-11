@@ -41,6 +41,10 @@ kdmapi-rs = { package = "kdmapi", git = "https://github.com/BlackMIDIDevs/kdmapi
 [target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dependencies]
 midir = "0.10.2"
 
+# Smaller GPU memory blocks (see patches/), extracted and patched by the Makefile
+[patch.crates-io]
+egui_winit_vulkano = { path = ".cargo/egui_winit_vulkano" }
+
 [build-dependencies]
 resvg = { version = "0.32.0", default-features = false }
 ico = "0.4.0"

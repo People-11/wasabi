@@ -24,7 +24,7 @@ use vulkano::{
     format::Format,
     image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
     instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter},
     sync::{self, GpuFuture},
     VulkanLibrary,
 };
@@ -96,7 +96,7 @@ impl OffscreenRenderer {
         )
         .map_err(|e| e.to_string())?;
         let queue = queues.next().unwrap();
-        let alloc = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+        let alloc = crate::utils::memory_allocator(device.clone());
         let format = Format::B8G8R8A8_SRGB;
 
         let final_image = ImageView::new_default(

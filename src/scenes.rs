@@ -3,7 +3,6 @@ use std::sync::Arc;
 use vulkano::{
     device::Device,
     image::{view::ImageView, Image, ImageCreateInfo, ImageUsage},
-    memory::allocator::StandardMemoryAllocator,
 };
 
 use crate::{
@@ -43,7 +42,7 @@ impl SceneSwapchain {
                 state.renderer.gui.unregister_user_image(image.id);
             }
 
-            let allocator = Arc::new(StandardMemoryAllocator::new_default(self.device.clone()));
+            let allocator = crate::utils::memory_allocator(self.device.clone());
             let create_info = ImageCreateInfo {
                 format: image_state.format,
                 extent: [size[0], size[1], 1],

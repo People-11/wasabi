@@ -99,7 +99,7 @@ pub struct PieRenderer {
 
 impl PieRenderer {
     pub fn new(device: Arc<Device>, queue: Arc<Queue>, format: Format) -> PieRenderer {
-        let allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+        let allocator = crate::utils::memory_allocator(device.clone());
 
         let render_pass_clear = vulkano::ordered_passes_renderpass!(device.clone(),
             attachments: {
@@ -408,13 +408,9 @@ impl PieRenderer {
             }
 
             // The trees are streamed through a fixed-size staging buffer instead of one as big
-            // as the file. It gets its own allocator because vulkano's allocators keep their
-            // memory blocks around for reuse, which would pin the staging memory forever.
-            let staging_allocator = Arc::new(StandardMemoryAllocator::new_default(
-                self.gfx_queue.device().clone(),
-            ));
+            // as the file. A large one gets memory of its own, freed once the upload is done.
             let staging: Subbuffer<[i32]> = Buffer::new_slice(
-                staging_allocator,
+                self.allocator.clone(),
                 BufferCreateInfo {
                     usage: BufferUsage::TRANSFER_SRC,
                     ..Default::default()

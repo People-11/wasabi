@@ -1,0 +1,55 @@
+diff --git a/src/utils.rs b/src/utils.rs
+--- a/src/utils.rs
++++ b/src/utils.rs
+@@ -21,7 +21,13 @@ use vulkano::{
+     descriptor_set::allocator::StandardDescriptorSetAllocator,
+     device::{Device, Queue},
+     image::{view::ImageView, AllocateImageError, Image, ImageCreateInfo, ImageType, ImageUsage},
+-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
++    memory::{
++        allocator::{
++            AllocationCreateInfo, GenericMemoryAllocatorCreateInfo, MemoryTypeFilter,
++            StandardMemoryAllocator,
++        },
++        MemoryPropertyFlags,
++    },
+     Validated, ValidationError, VulkanError,
+ };
+ 
+@@ -121,7 +127,7 @@ pub struct Allocators {
+ impl Allocators {
+     pub fn new_default(device: &Arc<Device>) -> Self {
+         Self {
+-            memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
++            memory: small_block_memory_allocator(device),
+             descriptor_set: StandardDescriptorSetAllocator::new(device.clone(), Default::default())
+                 .into(),
+             command_buffer: StandardCommandBufferAllocator::new(
+@@ -135,3 +141,27 @@ impl Allocators {
+         }
+     }
+ }
++
++/// `StandardMemoryAllocator::new_default` with 8 MiB blocks instead of 256 MiB ones, which
++/// are never freed while the allocator lives: the GUI's font texture and vertex buffers
++/// would pin over 500 MB of memory. (Patched in by wasabi's Makefile.)
++fn small_block_memory_allocator(device: &Arc<Device>) -> Arc<StandardMemoryAllocator> {
++    let memory_types = &device.physical_device().memory_properties().memory_types;
++    let unsupported = MemoryPropertyFlags::LAZILY_ALLOCATED
++        | MemoryPropertyFlags::PROTECTED
++        | MemoryPropertyFlags::DEVICE_COHERENT
++        | MemoryPropertyFlags::RDMA_CAPABLE;
++    let memory_type_bits = memory_types
++        .iter()
++        .enumerate()
++        .filter(|(_, t)| !t.property_flags.intersects(unsupported))
++        .fold(0, |bits, (i, _)| bits | 1 << i);
++    Arc::new(StandardMemoryAllocator::new(
++        device.clone(),
++        GenericMemoryAllocatorCreateInfo {
++            block_sizes: &vec![8 << 20; memory_types.len()],
++            memory_type_bits,
++            ..Default::default()
++        },
++    ))
++}

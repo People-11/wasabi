@@ -128,9 +128,7 @@ pub struct CakeRenderer {
 
 impl CakeRenderer {
     pub fn new(renderer: &GuiRenderer) -> CakeRenderer {
-        let allocator = Arc::new(StandardMemoryAllocator::new_default(
-            renderer.device.clone(),
-        ));
+        let allocator = crate::utils::memory_allocator(renderer.device.clone());
 
         let gfx_queue = renderer.queue.clone();
 

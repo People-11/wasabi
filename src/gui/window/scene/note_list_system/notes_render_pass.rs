@@ -65,7 +65,7 @@ struct BufferSet {
 }
 
 fn get_buffer(device: &Arc<Device>) -> (Subbuffer<[NoteVertex]>, Subbuffer<[NoteVertex]>) {
-    let allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+    let allocator = crate::utils::memory_allocator(device.clone());
 
     Buffer::new_slice(
         allocator.clone(),
@@ -128,9 +128,7 @@ pub struct NoteRenderPass {
 
 impl NoteRenderPass {
     pub fn new(device: Arc<Device>, queue: Arc<Queue>, format: Format) -> NoteRenderPass {
-        let allocator = Arc::new(StandardMemoryAllocator::new_default(
-            device.clone(),
-        ));
+        let allocator = crate::utils::memory_allocator(device.clone());
 
         let gfx_queue = queue;
 

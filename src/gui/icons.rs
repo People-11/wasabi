@@ -13,7 +13,7 @@ use vulkano::{
         view::ImageView,
         Image, ImageCreateInfo, ImageSubresourceLayers, ImageUsage,
     },
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter},
     sync::{self, GpuFuture},
 };
 
@@ -43,7 +43,7 @@ pub fn icons() -> &'static Icons {
 
 /// Uploads the icons pre-rendered by build.rs as mipmapped textures
 pub fn load(renderer: &mut GuiRenderer) {
-    let allocator = Arc::new(StandardMemoryAllocator::new_default(renderer.device.clone()));
+    let allocator = crate::utils::memory_allocator(renderer.device.clone());
     let cb_allocator = Arc::new(StandardCommandBufferAllocator::new(
         renderer.device.clone(),
         Default::default(),

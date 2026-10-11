@@ -50,3 +50,36 @@ pub fn create_reset_midi_messages() -> Vec<u32> {
         .flat_map(|ch| [120u32, 121].map(|cc| cc << 8 | 0xB0 | ch))
         .collect()
 }
+
+/// A memory allocator with 8 MiB blocks. vulkano's default allocates 256 MiB blocks per
+/// memory type and keeps them until the allocator is dropped, so each allocator pinned
+/// hundreds of MB of RAM and VRAM even for a few small images. Allocations over half a
+/// block get memory of their own, freed with them.
+pub fn memory_allocator(
+    device: std::sync::Arc<vulkano::device::Device>,
+) -> std::sync::Arc<vulkano::memory::allocator::StandardMemoryAllocator> {
+    use vulkano::memory::{
+        allocator::{GenericMemoryAllocatorCreateInfo, StandardMemoryAllocator},
+        MemoryPropertyFlags,
+    };
+    let memory_types = &device.physical_device().memory_properties().memory_types;
+    let block_sizes = vec![8 << 20; memory_types.len()];
+    // Same exclusions as `StandardMemoryAllocator::new_default`
+    let unsupported = MemoryPropertyFlags::LAZILY_ALLOCATED
+        | MemoryPropertyFlags::PROTECTED
+        | MemoryPropertyFlags::DEVICE_COHERENT
+        | MemoryPropertyFlags::RDMA_CAPABLE;
+    let memory_type_bits = memory_types
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| !t.property_flags.intersects(unsupported))
+        .fold(0, |bits, (i, _)| bits | 1 << i);
+    std::sync::Arc::new(StandardMemoryAllocator::new(
+        device,
+        GenericMemoryAllocatorCreateInfo {
+            block_sizes: &block_sizes,
+            memory_type_bits,
+            ..Default::default()
+        },
+    ))
+}

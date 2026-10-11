@@ -34,7 +34,8 @@ You can build Wasabi yourself by following these steps:
   - [CMake **3.X**](https://cmake.org/)
   - [Ninja](https://ninja-build.org/)
   - (C++ build tools for-)[Visual Studio 17+](https://visualstudio.microsoft.com/) (Windows only)
-- Inside the project directory run the following command to build Wasabi: `cargo build --release`
+- Inside the project directory, first fetch and patch a dependency (needs `make`, `curl`, `tar` and `git`, e.g. from Git Bash): `make .cargo/egui_winit_vulkano/.patched`
+- Then run the following command to build Wasabi: `cargo build --release`
   - Optionally you can add `RUSTFLAGS="-C target-cpu=native"` to your environment before compiling to optimize XSynth for your specific CPU
 - After the compilation is finished, you will find the binary under `./target/release`
 
@@ -85,7 +86,7 @@ Wasabi is licensed under the [GNU General Public License v3.0](https://www.gnu.o
 
 ## Performance
 
-This fork includes several performance optimizations. Besides being lighter and smaller overall, optimizations to the renderer and Cake parser reduce RAM usage by 30% and deliver up to 4× the FPS when playing the same MIDI. However, since a certain arrogant developer proudly declares that “no rubbish code is allowed into Wasabi”, I won’t be submitting these optimisations upstream. Instead, they have been split off into the Pie parser. Switch to Pie for maximum performance.
+This fork includes several performance optimizations. Besides being lighter and smaller overall, optimizations to the renderer and the Pie parser (derived from Cake) deliver up to 4× the FPS when playing the same MIDI, and use 40% less RAM. However, since a certain arrogant developer proudly declares that “no rubbish code is allowed into Wasabi”, I won’t be submitting these optimisations upstream. Instead, they have been split off into the Pie parser. Switch to Pie for maximum performance.
 
 Some optimizations to renderer also break compatibility with applications that rely on DXGI-based hooking, such as "Game Capture" in OBS. But since we already have a video export feature in this fork, screen capturing is meaningless.
 

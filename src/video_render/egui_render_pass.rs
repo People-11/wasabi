@@ -71,7 +71,7 @@ impl EguiRenderer {
         height: u32,
         ppp: f32,
     ) -> Self {
-        let allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+        let allocator = crate::utils::memory_allocator(device.clone());
         let sd_allocator = Arc::new(StandardDescriptorSetAllocator::new(
             device.clone(),
             Default::default(),
